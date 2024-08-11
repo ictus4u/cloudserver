@@ -177,8 +177,7 @@ describe('object acl authorization for objectGet and objectHead', () => {
 });
 
 describe('object authorization for objectPut and objectDelete', () => {
-    it('should allow access to anyone since checks ' +
-        'are done at bucket level', () => {
+    it('should allow access when no implicitDeny information is provided', () => {
         const requestTypes = ['objectPut', 'objectDelete'];
         const results = requestTypes.map(type =>
             isObjAuthorized(bucket, object, type, accountToVet, altAcctAuthInfo, log));
@@ -460,5 +459,56 @@ describe('without object metadata', () => {
             assert.deepStrictEqual(results, value.response);
             done();
         });
+    });
+
+    it('should treat initiateMultipartUpload as objectPut', () => {
+        bucket.setBucketPolicy({
+            Version: '2012-10-17',
+            Statement: [
+                {
+                    Effect: 'Allow',
+                    Resource: 'arn:aws:s3:::niftybucket',
+                    Principal: { CanonicalUser: [altAcctAuthInfo.getCanonicalID()] },
+                    Action: ['s3:PutObject'],
+                },
+            ],
+        });
+        const results = isObjAuthorized(bucket, null, 'initiateMultipartUpload',
+            accountToVet, altAcctAuthInfo, log);
+        assert.strictEqual(results, true);
+    });
+
+    it('should treat objectPutPart as objectPut', () => {
+        bucket.setBucketPolicy({
+            Version: '2012-10-17',
+            Statement: [
+                {
+                    Effect: 'Allow',
+                    Resource: 'arn:aws:s3:::niftybucket',
+                    Principal: { CanonicalUser: [altAcctAuthInfo.getCanonicalID()] },
+                    Action: ['s3:PutObject'],
+                },
+            ],
+        });
+        const results = isObjAuthorized(bucket, null, 'objectPutPart',
+            accountToVet, altAcctAuthInfo, log);
+        assert.strictEqual(results, true);
+    });
+
+    it('should treat completeMultipartUpload as objectPut', () => {
+        bucket.setBucketPolicy({
+            Version: '2012-10-17',
+            Statement: [
+                {
+                    Effect: 'Allow',
+                    Resource: 'arn:aws:s3:::niftybucket',
+                    Principal: { CanonicalUser: [altAcctAuthInfo.getCanonicalID()] },
+                    Action: ['s3:PutObject'],
+                },
+            ],
+        });
+        const results = isObjAuthorized(bucket, null, 'completeMultipartUpload',
+            accountToVet, altAcctAuthInfo, log);
+        assert.strictEqual(results, true);
     });
 });

@@ -5,7 +5,7 @@ const withV4 = require('../../support/withV4');
 const BucketUtility = require('../../../lib/utility/bucket-util');
 const constants = require('../../../../../../constants');
 const {
-    describeSkipIfNotMultiple,
+    describeSkipIfNotMultipleOrCeph,
     getAzureClient,
     getAzureContainerName,
     convertMD5,
@@ -14,6 +14,7 @@ const {
     azureLocation,
     azureLocation2,
     azureLocationMismatch,
+    genUniqID,
 } = require('../utils');
 const { createEncryptedBucketPromise } =
     require('../../../lib/utility/createEncryptedBucket');
@@ -21,14 +22,16 @@ const { createEncryptedBucketPromise } =
 const azureClient = getAzureClient();
 const azureContainerName = getAzureContainerName(azureLocation);
 
-const bucket = 'buckettestmultiplebackendobjectcopy';
-const bucketAzure = 'bucketazuretestmultiplebackendobjectcopy';
+const bucket = `objectcopybucket${genUniqID()}`;
+const bucketAzure = `objectcopyazure${genUniqID()}`;
 const body = Buffer.from('I am a body', 'utf8');
 const bigBody = Buffer.alloc(5 * 1024 * 1024);
 const normalMD5 = 'be747eb4b75517bf6b3cf7c5fbb62f3a';
 const bigMD5 = '5f363e0e58a95f06cbe9bbc662c5dfb6';
 const emptyMD5 = 'd41d8cd98f00b204e9800998ecf8427e';
 const locMetaHeader = constants.objectLocationConstraintHeader.substring(11);
+
+const Promise = require('bluebird');
 
 const azureTimeout = 40000;
 
@@ -69,7 +72,8 @@ destBucket, destLoc, azureKey, mdDirective, objSize, callback) {
     async.series([
         cb => s3.getObject(sourceGetParams, cb),
         cb => s3.getObject(destGetParams, cb),
-        cb => azureClient.getBlobProperties(azureContainerName, azureKey, cb),
+        cb => azureClient.getContainerClient(azureContainerName).getProperties(azureKey)
+                .then(res => cb(null, res), err => cb(err)),
     ], (err, results) => {
         assert.equal(err, null, `Error in assertGetObjects: ${err}`);
         const [sourceRes, destRes, azureRes] = results;
@@ -111,13 +115,13 @@ destBucket, destLoc, azureKey, mdDirective, objSize, callback) {
     });
 }
 
-describeSkipIfNotMultiple('MultipleBackend object copy: Azure',
+describeSkipIfNotMultipleOrCeph('MultipleBackend object copy: Azure',
 function testSuite() {
     this.timeout(250000);
     withV4(sigCfg => {
         beforeEach(function beFn() {
-            this.currentTest.key = `azureputkey-${Date.now()}`;
-            this.currentTest.copyKey = `azurecopyKey-${Date.now()}`;
+            this.currentTest.key = `azureputkey-${genUniqID()}`;
+            this.currentTest.copyKey = `azurecopyKey-${genUniqID()}`;
             bucketUtil = new BucketUtility('default', sigCfg);
             s3 = bucketUtil.s3;
             process.stdout.write('Creating bucket\n');

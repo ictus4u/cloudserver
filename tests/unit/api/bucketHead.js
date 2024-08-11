@@ -1,5 +1,4 @@
 const assert = require('assert');
-const { errors } = require('arsenal');
 
 const bucketHead = require('../../../lib/api/bucketHead');
 const { bucketPut } = require('../../../lib/api/bucketPut');
@@ -14,6 +13,7 @@ const testRequest = {
     namespace,
     headers: { host: `${bucketName}.s3.amazonaws.com` },
     url: '/',
+    actionImplicitDenies: false,
 };
 describe('bucketHead API', () => {
     beforeEach(() => {
@@ -22,7 +22,7 @@ describe('bucketHead API', () => {
 
     it('should return an error if the bucket does not exist', done => {
         bucketHead(authInfo, testRequest, log, err => {
-            assert.deepStrictEqual(err, errors.NoSuchBucket);
+            assert.strictEqual(err.is.NoSuchBucket, true);
             done();
         });
     });
@@ -31,7 +31,7 @@ describe('bucketHead API', () => {
         const otherAuthInfo = makeAuthInfo('accessKey2');
         bucketPut(otherAuthInfo, testRequest, log, () => {
             bucketHead(authInfo, testRequest, log, err => {
-                assert.deepStrictEqual(err, errors.AccessDenied);
+                assert.strictEqual(err.is.AccessDenied, true);
                 done();
             });
         });

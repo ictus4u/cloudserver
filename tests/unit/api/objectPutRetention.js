@@ -1,7 +1,6 @@
 const assert = require('assert');
 const moment = require('moment');
 
-const { errors } = require('arsenal');
 const { bucketPut } = require('../../../lib/api/bucketPut');
 const objectPut = require('../../../lib/api/objectPut');
 const objectPutRetention = require('../../../lib/api/objectPutRetention');
@@ -16,13 +15,14 @@ const bucketName = 'bucketname';
 const objectName = 'objectName';
 const postBody = Buffer.from('I am a body', 'utf8');
 
-const date = new Date();
-date.setDate(date.getDate() + 1);
+const expectedMode = 'GOVERNANCE';
+const expectedDate = moment().add(2, 'days').toISOString();
 
 const bucketPutRequest = {
     bucketName,
     headers: { host: `${bucketName}.s3.amazonaws.com` },
     url: '/',
+    actionImplicitDenies: false,
 };
 
 const putObjectRequest = new DummyRequest({
@@ -36,13 +36,25 @@ const putObjectRequest = new DummyRequest({
 const objectRetentionXmlGovernance = '<Retention ' +
     'xmlns="http://s3.amazonaws.com/doc/2006-03-01/">' +
     '<Mode>GOVERNANCE</Mode>' +
-    `<RetainUntilDate>${date.toISOString()}</RetainUntilDate>` +
+    `<RetainUntilDate>${expectedDate}</RetainUntilDate>` +
     '</Retention>';
 
 const objectRetentionXmlCompliance = '<Retention ' +
     'xmlns="http://s3.amazonaws.com/doc/2006-03-01/">' +
     '<Mode>COMPLIANCE</Mode>' +
-    `<RetainUntilDate>${moment().add(2, 'days').toISOString()}</RetainUntilDate>` +
+    `<RetainUntilDate>${expectedDate}</RetainUntilDate>` +
+    '</Retention>';
+
+const objectRetentionXmlGovernanceLonger = '<Retention ' +
+    'xmlns="http://s3.amazonaws.com/doc/2006-03-01/">' +
+    '<Mode>GOVERNANCE</Mode>' +
+    `<RetainUntilDate>${moment().add(5, 'days').toISOString()}</RetainUntilDate>` +
+    '</Retention>';
+
+const objectRetentionXmlGovernanceShorter = '<Retention ' +
+    'xmlns="http://s3.amazonaws.com/doc/2006-03-01/">' +
+    '<Mode>GOVERNANCE</Mode>' +
+    `<RetainUntilDate>${moment().add(1, 'days').toISOString()}</RetainUntilDate>` +
     '</Retention>';
 
 const objectRetentionXmlComplianceShorter = '<Retention ' +
@@ -56,6 +68,7 @@ const putObjRetRequestGovernance = {
     objectKey: objectName,
     headers: { host: `${bucketName}.s3.amazonaws.com` },
     post: objectRetentionXmlGovernance,
+    actionImplicitDenies: false,
 };
 
 const putObjRetRequestGovernanceWithHeader = {
@@ -66,6 +79,7 @@ const putObjRetRequestGovernanceWithHeader = {
         'x-amz-bypass-governance-retention': 'true',
     },
     post: objectRetentionXmlGovernance,
+    actionImplicitDenies: false,
 };
 
 const putObjRetRequestCompliance = {
@@ -73,6 +87,7 @@ const putObjRetRequestCompliance = {
     objectKey: objectName,
     headers: { host: `${bucketName}.s3.amazonaws.com` },
     post: objectRetentionXmlCompliance,
+    actionImplicitDenies: false,
 };
 
 const putObjRetRequestComplianceShorter = {
@@ -80,10 +95,24 @@ const putObjRetRequestComplianceShorter = {
     objectKey: objectName,
     headers: { host: `${bucketName}.s3.amazonaws.com` },
     post: objectRetentionXmlComplianceShorter,
+    actionImplicitDenies: false,
 };
 
-const expectedMode = 'GOVERNANCE';
-const expectedDate = date.toISOString();
+const putObjRetRequestGovernanceLonger = {
+    bucketName,
+    objectKey: objectName,
+    headers: { host: `${bucketName}.s3.amazonaws.com` },
+    post: objectRetentionXmlGovernanceLonger,
+    actionImplicitDenies: false,
+};
+
+const putObjRetRequestGovernanceShorter = {
+    bucketName,
+    objectKey: objectName,
+    headers: { host: `${bucketName}.s3.amazonaws.com` },
+    post: objectRetentionXmlGovernanceShorter,
+    actionImplicitDenies: false,
+};
 
 describe('putObjectRetention API', () => {
     before(() => cleanup());
@@ -134,7 +163,7 @@ describe('putObjectRetention API', () => {
             objectPutRetention(authInfo, putObjRetRequestCompliance, log, err => {
                 assert.ifError(err);
                 return objectPutRetention(authInfo, putObjRetRequestGovernance, log, err => {
-                    assert.deepStrictEqual(err, errors.AccessDenied);
+                    assert.strictEqual(err.is.AccessDenied, true);
                     done();
                 });
             });
@@ -144,25 +173,46 @@ describe('putObjectRetention API', () => {
             objectPutRetention(authInfo, putObjRetRequestCompliance, log, err => {
                 assert.ifError(err);
                 return objectPutRetention(authInfo, putObjRetRequestComplianceShorter, log, err => {
-                    assert.deepStrictEqual(err, errors.AccessDenied);
+                    assert.strictEqual(err.is.AccessDenied, true);
                     done();
                 });
             });
         });
 
-        it('should disallow update if the x-amz-bypass-governance-retention header is missing and'
+        it('should allow update if the x-amz-bypass-governance-retention header is missing and '
+            + 'GOVERNANCE mode is enabled if time is being extended', done => {
+            objectPutRetention(authInfo, putObjRetRequestGovernance, log, err => {
+                assert.ifError(err);
+                return objectPutRetention(authInfo, putObjRetRequestGovernanceLonger, log, err => {
+                    assert.ifError(err);
+                    done();
+                });
+            });
+        });
+
+        it('should disallow update if the x-amz-bypass-governance-retention header is missing and '
             + 'GOVERNANCE mode is enabled', done => {
             objectPutRetention(authInfo, putObjRetRequestGovernance, log, err => {
                 assert.ifError(err);
-                return objectPutRetention(authInfo, putObjRetRequestGovernance, log, err => {
-                    assert.deepStrictEqual(err, errors.AccessDenied);
+                return objectPutRetention(authInfo, putObjRetRequestGovernanceShorter, log, err => {
+                    assert.strictEqual(err.is.AccessDenied, true);
                     done();
                 });
             });
         });
 
+        it('should allow update if the x-amz-bypass-governance-retention header is missing and '
+            + 'GOVERNANCE mode is enabled and the same date is used', done => {
+            objectPutRetention(authInfo, putObjRetRequestGovernance, log, err => {
+                assert.ifError(err);
+                return objectPutRetention(authInfo, putObjRetRequestGovernance, log, err => {
+                    assert.ifError(err);
+                    done();
+                });
+            });
+        });
 
-        it('should allow update if the x-amz-bypass-governance-retention header is present and'
+        it('should allow update if the x-amz-bypass-governance-retention header is present and '
             + 'GOVERNANCE mode is enabled', done => {
             objectPutRetention(authInfo, putObjRetRequestGovernance, log, err => {
                 assert.ifError(err);

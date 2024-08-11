@@ -4,7 +4,7 @@ const async = require('async');
 const { s3middleware } = require('arsenal');
 const withV4 = require('../../support/withV4');
 const BucketUtility = require('../../../lib/utility/bucket-util');
-const { describeSkipIfNotMultiple, uniqName, getAzureClient,
+const { describeSkipIfNotMultipleOrCeph, uniqName, getAzureClient,
     getAzureContainerName, convertMD5, azureLocation } = require('../utils');
 const azureMpuUtils = s3middleware.azureHelper.mpuUtils;
 const maxSubPartSize = azureMpuUtils.maxSubPartSize;
@@ -18,19 +18,21 @@ let bucketUtil;
 let s3;
 
 function azureCheck(container, key, expected, cb) {
-    azureClient.getBlobProperties(container, key, (err, res) => {
-        if (expected.error) {
-            assert.strictEqual(err.statusCode, 404);
-            assert.strictEqual(err.code, 'NotFound');
-        } else {
-            const convertedMD5 = convertMD5(res.contentSettings.contentMD5);
-            assert.strictEqual(convertedMD5, expectedMD5);
-        }
+    azureClient.getContainerClient(container).getProperties(key).then(res => {
+        assert.ok(!expected.error);
+        const convertedMD5 = convertMD5(res.contentSettings.contentMD5);
+        assert.strictEqual(convertedMD5, expectedMD5);
+        return cb();
+    },
+    err => {
+        assert.ok(expected.error);
+        assert.strictEqual(err.statusCode, 404);
+        assert.strictEqual(err.code, 'NotFound');
         return cb();
     });
 }
 
-describeSkipIfNotMultiple('Abort MPU on Azure data backend', function
+describeSkipIfNotMultipleOrCeph('Abort MPU on Azure data backend', function
 describeF() {
     this.timeout(50000);
     withV4(sigCfg => {

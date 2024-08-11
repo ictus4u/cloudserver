@@ -99,7 +99,7 @@ describe('aws-sdk test put bucket tagging', () => {
             }, (err, res) => {
                 next(err, res);
             }),
-        ], (err) => {
+        ], err => {
             assertError(err, 'InvalidTag');
             done();
         });
@@ -113,7 +113,7 @@ describe('aws-sdk test put bucket tagging', () => {
             }, (err, res) => {
                 next(err, res);
             }),
-        ], (err) => {
+        ], err => {
             assertError(err, 'InvalidTag');
             done();
         });
@@ -127,7 +127,7 @@ describe('aws-sdk test put bucket tagging', () => {
             }, (err, res) => {
                 next(err, res);
             }),
-        ], (err) => {
+        ], err => {
             assertError(err, 'InvalidTag');
             done();
         });
@@ -148,7 +148,7 @@ describe('aws-sdk test put bucket tagging', () => {
                 assert.deepStrictEqual(res, validTagging);
                 next(err, res);
             }),
-        ], (err) => {
+        ], err => {
             assert.ifError(err);
             done(err);
         });
@@ -169,7 +169,7 @@ describe('aws-sdk test put bucket tagging', () => {
                 assert.deepStrictEqual(res, validSingleTagging);
                 next(err, res);
             }),
-        ], (err) => {
+        ], err => {
             assert.ifError(err);
             done(err);
         });
@@ -197,7 +197,7 @@ describe('aws-sdk test put bucket tagging', () => {
                 Tagging: validEmptyTagging, Bucket: bucket, ExpectedBucketOwner: '944690102203' }, (err, res) => {
                 next(err, res);
             }),
-        ], (err) => {
+        ], err => {
             assertError(err, 'AccessDenied');
             done();
         });
@@ -210,8 +210,44 @@ describe('aws-sdk test put bucket tagging', () => {
                 next(err, res);
             }),
             next => s3.getBucketTagging({ AccountId: s3.AccountId, Bucket: bucket }, next),
-        ], (err) => {
+        ], err => {
             assertError(err, 'NoSuchTagSet');
+            done();
+        });
+    });
+
+    it('should put 50 tags', done => {
+        const tags = {
+            TagSet: new Array(50).fill().map((el, index) => ({
+                Key: `test_${index}`,
+                Value: `value_${index}`,
+            })),
+        };
+        s3.putBucketTagging({
+            AccountId: s3.AccountId,
+            Tagging: tags,
+            Bucket: bucket,
+            ExpectedBucketOwner: s3.AccountId
+        }, err => {
+            assert.ifError(err);
+            done(err);
+        });
+    });
+
+    it('should not put more than 50 tags', done => {
+        const tags = {
+            TagSet: new Array(51).fill().map((el, index) => ({
+                Key: `test_${index}`,
+                Value: `value_${index}`,
+            })),
+        };
+        s3.putBucketTagging({
+            AccountId: s3.AccountId,
+            Tagging: tags,
+            Bucket: bucket,
+            ExpectedBucketOwner: s3.AccountId
+        }, err => {
+            assertError(err, 'BadRequest');
             done();
         });
     });

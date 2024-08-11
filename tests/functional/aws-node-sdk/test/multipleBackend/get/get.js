@@ -8,16 +8,17 @@ const {
     fileLocation,
     awsLocation,
     awsLocationMismatch,
+    genUniqID,
 } = require('../utils');
 
-const bucket = 'buckettestmultiplebackendget';
-const memObject = `memobject-${Date.now()}`;
-const fileObject = `fileobject-${Date.now()}`;
-const awsObject = `awsobject-${Date.now()}`;
-const emptyObject = `emptyObject-${Date.now()}`;
-const emptyAwsObject = `emptyObject-${Date.now()}`;
-const bigObject = `bigObject-${Date.now()}`;
-const mismatchObject = `mismatch-${Date.now()}`;
+const bucket = `getaws${genUniqID()}`;
+const memObject = `memobject-${genUniqID()}`;
+const fileObject = `fileobject-${genUniqID()}`;
+const awsObject = `awsobject-${genUniqID()}`;
+const emptyObject = `emptyObject-${genUniqID()}`;
+const emptyAwsObject = `emptyObject-${genUniqID()}`;
+const bigObject = `bigObject-${genUniqID()}`;
+const mismatchObject = `mismatch-${genUniqID()}`;
 const body = Buffer.from('I am a body', 'utf8');
 const bigBody = Buffer.alloc(10485760);
 const bigBodyLen = bigBody.length;
@@ -79,7 +80,7 @@ describe('Multiple backend get object', function testSuite() {
         describeSkipIfNotMultiple('Complete MPU then get object on AWS ' +
         'location with bucketMatch: true ', () => {
             beforeEach(function beforeEachFn(done) {
-                this.currentTest.key = `somekey-${Date.now()}`;
+                this.currentTest.key = `somekey-${genUniqID()}`;
                 bucketUtil = new BucketUtility('default', sigCfg);
                 s3 = bucketUtil.s3;
 
@@ -118,7 +119,7 @@ describe('Multiple backend get object', function testSuite() {
                 }, (err, res) => {
                     assert.equal(err, null, 'Expected success but got ' +
                       `error ${err}`);
-                    assert.strictEqual(res.ContentLength, '10');
+                    assert.strictEqual(res.ContentLength, 10);
                     assert.strictEqual(res.Body.toString(), 'helloworld');
                     assert.deepStrictEqual(res.Metadata,
                       { 'scal-location-constraint': awsLocation });
@@ -130,7 +131,7 @@ describe('Multiple backend get object', function testSuite() {
         describeSkipIfNotMultiple('Complete MPU then get object on AWS ' +
         'location with bucketMatch: false ', () => {
             beforeEach(function beforeEachFn(done) {
-                this.currentTest.key = `somekey-${Date.now()}`;
+                this.currentTest.key = `somekey-${genUniqID()}`;
                 bucketUtil = new BucketUtility('default', sigCfg);
                 s3 = bucketUtil.s3;
 
@@ -170,7 +171,7 @@ describe('Multiple backend get object', function testSuite() {
                 }, (err, res) => {
                     assert.equal(err, null, 'Expected success but got ' +
                       `error ${err}`);
-                    assert.strictEqual(res.ContentLength, '10');
+                    assert.strictEqual(res.ContentLength, 10);
                     assert.strictEqual(res.Body.toString(), 'helloworld');
                     assert.deepStrictEqual(res.Metadata,
                       { 'scal-location-constraint': awsLocationMismatch });
@@ -292,7 +293,7 @@ describe('Multiple backend get object', function testSuite() {
                     (err, res) => {
                         assert.equal(err, null, 'Expected success but got ' +
                             `error ${err}`);
-                        assert.strictEqual(res.ContentLength, '10');
+                        assert.strictEqual(res.ContentLength, 10);
                         assert.strictEqual(res.ContentRange,
                             `bytes 0-9/${bigBodyLen}`);
                         assert.strictEqual(res.ETag, `"${bigMD5}"`);

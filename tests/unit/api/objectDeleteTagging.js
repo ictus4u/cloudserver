@@ -22,6 +22,7 @@ const testBucketPutRequest = {
     bucketName,
     headers: { host: `${bucketName}.s3.amazonaws.com` },
     url: '/',
+    actionImplicitDenies: false,
 };
 
 const testPutObjectRequest = new DummyRequest({
@@ -46,7 +47,7 @@ describe('deleteObjectTagging API', () => {
 
     afterEach(() => cleanup());
 
-    it('should delete tag set', done => {
+    it('should delete tag set and update originOp', done => {
         const taggingUtil = new TaggingConfigTester();
         const testObjectPutTaggingRequest = taggingUtil
             .createObjectTaggingRequest('PUT', bucketName, objectName);
@@ -62,6 +63,7 @@ describe('deleteObjectTagging API', () => {
         ], (err, objectMD) => {
             const uploadedTags = objectMD.tags;
             assert.deepStrictEqual(uploadedTags, {});
+            assert.strictEqual(objectMD.originOp, 's3:ObjectTagging:Delete');
             return done();
         });
     });

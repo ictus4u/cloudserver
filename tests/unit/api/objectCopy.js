@@ -1,14 +1,21 @@
 const assert = require('assert');
 const async = require('async');
+const { storage } = require('arsenal');
+const sinon = require('sinon');
 
 const { bucketPut } = require('../../../lib/api/bucketPut');
 const bucketPutVersioning = require('../../../lib/api/bucketPutVersioning');
 const objectPut = require('../../../lib/api/objectPut');
 const objectCopy = require('../../../lib/api/objectCopy');
-const { ds } = require('arsenal').storage.data.inMemory.datastore;
 const DummyRequest = require('../DummyRequest');
 const { cleanup, DummyRequestLogger, makeAuthInfo, versioningTestUtils }
     = require('../helpers');
+const mpuUtils = require('../utils/mpuUtils');
+const metadata = require('../metadataswitch');
+
+const any = sinon.match.any;
+
+const { ds } = storage.data.inMemory.datastore;
 
 const log = new DummyRequestLogger();
 const canonicalID = 'accessKey1';
@@ -17,6 +24,7 @@ const namespace = 'default';
 const destBucketName = 'destbucketname';
 const sourceBucketName = 'sourcebucketname';
 const objectKey = 'objectName';
+const originalputObjectMD = metadata.putObjectMD;
 
 function _createBucketPutRequest(bucketName) {
     return new DummyRequest({
@@ -44,11 +52,11 @@ const enableVersioningRequest = versioningTestUtils
     .createBucketPutVersioningReq(destBucketName, 'Enabled');
 const suspendVersioningRequest = versioningTestUtils
     .createBucketPutVersioningReq(destBucketName, 'Suspended');
+const objData = ['foo0', 'foo1', 'foo2'].map(str =>
+    Buffer.from(str, 'utf8'));
+
 
 describe('objectCopy with versioning', () => {
-    const objData = ['foo0', 'foo1', 'foo2'].map(str =>
-        Buffer.from(str, 'utf8'));
-
     const testPutObjectRequests = objData.slice(0, 2).map(data =>
         versioningTestUtils.createPutObjectRequest(destBucketName, objectKey,
             data));
@@ -101,5 +109,141 @@ describe('objectCopy with versioning', () => {
                     done();
                 });
             });
+    });
+
+    it('should not copy object with storage-class header not equal to STANDARD', done => {
+        const testObjectCopyRequest = _createObjectCopyRequest(destBucketName);
+        testObjectCopyRequest.headers['x-amz-storage-class'] = 'COLD';
+        objectCopy(authInfo, testObjectCopyRequest, sourceBucketName, objectKey,
+            undefined, log, err => {
+                setImmediate(() => {
+                    assert.strictEqual(err.is.InvalidStorageClass, true);
+                    done();
+                });
+            });
+    });
+});
+
+describe('non-versioned objectCopy', () => {
+    const testPutObjectRequest = versioningTestUtils
+        .createPutObjectRequest(sourceBucketName, objectKey, objData[0]);
+
+    before(done => {
+        cleanup();
+        sinon.stub(metadata, 'putObjectMD')
+            .callsFake(originalputObjectMD);
+        async.series([
+            callback => bucketPut(authInfo, putDestBucketRequest, log,
+                callback),
+            callback => bucketPut(authInfo, putSourceBucketRequest, log,
+                callback),
+            // put source object in source bucket
+            callback => objectPut(authInfo, testPutObjectRequest,
+                undefined, log, callback),
+        ], err => {
+            if (err) {
+                return done(err);
+            }
+            versioningTestUtils.assertDataStoreValues(ds, objData.slice(0, 1));
+            return done();
+        });
+    });
+
+    after(() => {
+        cleanup();
+        sinon.restore();
+    });
+
+    const testObjectCopyRequest = _createObjectCopyRequest(destBucketName);
+
+    it('should not leave orphans in data when overwriting a multipart upload', done => {
+        mpuUtils.createMPU(namespace, destBucketName, objectKey, log,
+        (err, testUploadId) => {
+            assert.ifError(err);
+            objectCopy(authInfo, testObjectCopyRequest, sourceBucketName, objectKey,
+                undefined, log, err => {
+                    assert.ifError(err);
+                    sinon.assert.calledWith(metadata.putObjectMD,
+                        any, any, any, sinon.match({ oldReplayId: testUploadId }), any, any);
+                    done();
+                });
+        });
+    });
+});
+
+describe('objectCopy overheadField', () => {
+    beforeEach(done => {
+        cleanup();
+        sinon.stub(metadata, 'putObjectMD').callsFake(originalputObjectMD);
+        async.series([
+            next => bucketPut(authInfo, putSourceBucketRequest, log, next),
+            next => bucketPut(authInfo, putDestBucketRequest, log, next),
+        ], done);
+    });
+
+    afterEach(() => {
+        sinon.restore();
+        cleanup();
+    });
+
+    it('should pass overheadField to metadata.putObjectMD for a non-versioned request', done => {
+        const testPutObjectRequest =
+            versioningTestUtils.createPutObjectRequest(sourceBucketName, objectKey, objData[0]);
+        const testObjectCopyRequest = _createObjectCopyRequest(destBucketName);
+        objectPut(authInfo, testPutObjectRequest, undefined, log, err => {
+            assert.ifError(err);
+            objectCopy(authInfo, testObjectCopyRequest, sourceBucketName, objectKey, undefined, log,
+                err => {
+                    assert.ifError(err);
+                    sinon.assert.calledWith(metadata.putObjectMD.lastCall,
+                        destBucketName, objectKey, any, sinon.match({ overheadField: sinon.match.array }), any, any);
+                    done();
+                }
+            );
+        });
+    });
+
+    it('should pass overheadField to metadata.putObjectMD for a versioned request', done => {
+        const testPutObjectRequest =
+            versioningTestUtils.createPutObjectRequest(sourceBucketName, objectKey, objData[0]);
+        const testObjectCopyRequest = _createObjectCopyRequest(destBucketName);
+        objectPut(authInfo, testPutObjectRequest, undefined, log, err => {
+            assert.ifError(err);
+            bucketPutVersioning(authInfo, enableVersioningRequest, log, err => {
+                assert.ifError(err);
+                objectCopy(authInfo, testObjectCopyRequest, sourceBucketName, objectKey, undefined, log,
+                    err => {
+                        assert.ifError(err);
+                        sinon.assert.calledWith(metadata.putObjectMD.lastCall,
+                            destBucketName, objectKey, any,
+                            sinon.match({ overheadField: sinon.match.array }), any, any
+                        );
+                        done();
+                    }
+                );
+            });
+        });
+    });
+
+    it('should pass overheadField to metadata.putObjectMD for a version-suspended request', done => {
+        const testPutObjectRequest =
+            versioningTestUtils.createPutObjectRequest(sourceBucketName, objectKey, objData[0]);
+        const testObjectCopyRequest = _createObjectCopyRequest(destBucketName);
+        objectPut(authInfo, testPutObjectRequest, undefined, log, err => {
+            assert.ifError(err);
+            bucketPutVersioning(authInfo, suspendVersioningRequest, log, err => {
+                assert.ifError(err);
+                objectCopy(authInfo, testObjectCopyRequest, sourceBucketName, objectKey, undefined, log,
+                    err => {
+                        assert.ifError(err);
+                        sinon.assert.calledWith(metadata.putObjectMD.lastCall,
+                            destBucketName, objectKey, any,
+                            sinon.match({ overheadField: sinon.match.array }), any, any
+                        );
+                        done();
+                    }
+                );
+            });
+        });
     });
 });

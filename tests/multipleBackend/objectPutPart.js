@@ -3,20 +3,23 @@ const async = require('async');
 const crypto = require('crypto');
 const { parseString } = require('xml2js');
 const AWS = require('aws-sdk');
+const { storage } = require('arsenal');
+
 const { config } = require('../../lib/Config');
 const { cleanup, DummyRequestLogger, makeAuthInfo }
     = require('../unit/helpers');
-const { ds } = require('arsenal').storage.data.inMemory.datastore;
 const { bucketPut } = require('../../lib/api/bucketPut');
 const initiateMultipartUpload
     = require('../../lib/api/initiateMultipartUpload');
 const objectPutPart = require('../../lib/api/objectPutPart');
 const DummyRequest = require('../unit/DummyRequest');
-const { metadata } = require('arsenal').storage.metadata.inMemory.metadata;
 const mdWrapper = require('../../lib/metadata/wrapper');
 const constants = require('../../constants');
 const { getRealAwsConfig } =
     require('../functional/aws-node-sdk/test/support/awsConfig');
+
+const { metadata } = storage.metadata.inMemory.metadata;
+const { ds } = storage.data.inMemory.datastore;
 
 const memLocation = 'scality-internal-mem';
 const fileLocation = 'scality-internal-file';
@@ -70,6 +73,7 @@ errorDescription) {
         objectKey: objectName,
         headers: { host: `${bucketName}.s3.amazonaws.com` },
         url: `/${objectName}?uploads`,
+        actionImplicitDenies: false,
     };
     if (mpuLoc) {
         initiateReq.headers = { 'host': `${bucketName}.s3.amazonaws.com`,
@@ -99,10 +103,13 @@ errorDescription) {
     (err, json) => {
         if (errorDescription) {
             assert.strictEqual(err.code, 400);
-            assert(err.InvalidArgument);
+            assert(err.is.InvalidArgument);
             assert(err.description.indexOf(errorDescription) > -1);
             return cb();
         }
+
+        assert.ifError(err, 'Error initiating MPU');
+
         // Need to build request in here since do not have uploadId
         // until here
         const testUploadId = json.InitiateMultipartUploadResult.UploadId[0];
@@ -144,8 +151,8 @@ errorDescription) {
     });
 }
 
-function listAndAbort(uploadId, calculatedHash2, objectName, done) {
-    const awsBucket = config.locationConstraints[awsLocation].
+function listAndAbort(uploadId, calculatedHash2, objectName, location, done) {
+    const awsBucket = config.locationConstraints[location].
         details.bucketName;
     const params = {
         Bucket: awsBucket,
@@ -168,7 +175,7 @@ function listAndAbort(uploadId, calculatedHash2, objectName, done) {
 
 describeSkipIfE2E('objectPutPart API with multiple backends',
 function testSuite() {
-    this.timeout(5000);
+    this.timeout(50000);
 
     beforeEach(() => {
         cleanup();
@@ -195,7 +202,7 @@ function testSuite() {
         putPart(fileLocation, awsLocation, 'localhost',
         (objectName, uploadId) => {
             assert.deepStrictEqual(ds, []);
-            listAndAbort(uploadId, null, objectName, done);
+            listAndAbort(uploadId, null, objectName, awsLocation, done);
         });
     });
 
@@ -218,7 +225,8 @@ function testSuite() {
             const partReq = new DummyRequest(partReqParams, body2);
             objectPutPart(authInfo, partReq, undefined, log, err => {
                 assert.equal(err, null, `Error putting second part: ${err}`);
-                listAndAbort(uploadId, calculatedHash2, objectName, done);
+                listAndAbort(uploadId, calculatedHash2,
+                                objectName, awsLocation, done);
             });
         });
     });
@@ -249,7 +257,7 @@ function testSuite() {
         putPart(awsLocation, null, 'localhost',
         (objectName, uploadId) => {
             assert.deepStrictEqual(ds, []);
-            listAndAbort(uploadId, null, objectName, done);
+            listAndAbort(uploadId, null, objectName, awsLocation, done);
         });
     });
 
@@ -258,7 +266,7 @@ function testSuite() {
         putPart(null, awsLocation, 'localhost',
         (objectName, uploadId) => {
             assert.deepStrictEqual(ds, []);
-            listAndAbort(uploadId, null, objectName, done);
+            listAndAbort(uploadId, null, objectName, awsLocation, done);
         });
     });
 
@@ -267,7 +275,8 @@ function testSuite() {
         putPart(null, awsLocationMismatch, 'localhost',
         (objectName, uploadId) => {
             assert.deepStrictEqual(ds, []);
-            listAndAbort(uploadId, null, `${bucketName}/${objectName}`, done);
+            listAndAbort(uploadId, null, `${bucketName}/${objectName}`,
+                            awsLocationMismatch, done);
         });
     });
 

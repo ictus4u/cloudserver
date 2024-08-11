@@ -1,4 +1,6 @@
 const bluebird = require('bluebird');
+const AWS = require('aws-sdk');
+AWS.config.logger = console;
 const { S3 } = require('aws-sdk');
 const projectFixture = require('../fixtures/project');
 const getConfig = require('../../test/support/config');
@@ -12,6 +14,18 @@ class BucketUtility {
         this.s3.config.update({
             maxRetries: 0,
         });
+    }
+
+    bucketExists(bucketName) {
+        return this.s3
+            .headBucket({ Bucket: bucketName }).promise()
+            .then(() => true)
+            .catch(err => {
+                if (err.code === 'NotFound') {
+                    return false;
+                }
+                throw err;
+            });
     }
 
     createOne(bucketName) {
@@ -116,6 +130,24 @@ class BucketUtility {
     emptyMany(bucketNames) {
         const promises = bucketNames.map(
             bucketName => this.empty(bucketName)
+        );
+
+        return Promise.all(promises);
+    }
+
+    emptyIfExists(bucketName) {
+        return this.bucketExists(bucketName)
+            .then(exists => {
+                if (exists) {
+                    return this.empty(bucketName);
+                }
+                return undefined;
+            });
+    }
+
+    emptyManyIfExists(bucketNames) {
+        const promises = bucketNames.map(
+            bucketName => this.emptyIfExists(bucketName)
         );
 
         return Promise.all(promises);

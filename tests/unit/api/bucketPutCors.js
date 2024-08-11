@@ -19,6 +19,7 @@ const testBucketPutRequest = {
     bucketName,
     headers: { host: `${bucketName}.s3.amazonaws.com` },
     url: '/',
+    actionImplicitDenies: false,
 };
 
 function _testPutBucketCors(authInfo, request, log, errCode, cb) {
@@ -129,7 +130,7 @@ describe('PUT bucket cors :: helper validation functions ', () => {
             `<ID>${testValue}</ID>`);
             parseCorsXml(xml, log, err => {
                 assert(err, 'Expected error but found none');
-                assert.deepStrictEqual(err, errors.MalformedXML);
+                assert.strictEqual(err.is.MalformedXML, true);
                 return done();
             });
         });
@@ -175,7 +176,7 @@ describe('PUT bucket cors :: helper validation functions ', () => {
                 `<MaxAgeSeconds>${testValue}</MaxAgeSeconds>`);
             parseCorsXml(xml, log, err => {
                 assert(err, 'Expected error but found none');
-                assert.deepStrictEqual(err, errors.MalformedXML);
+                assert.strictEqual(err.is.MalformedXML, true);
                 return done();
             });
         });

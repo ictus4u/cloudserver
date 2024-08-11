@@ -1,7 +1,6 @@
 const assert = require('assert');
 const async = require('async');
 const { parseString } = require('xml2js');
-const { errors } = require('arsenal');
 
 const { bucketPut } = require('../../../lib/api/bucketPut');
 const constants = require('../../../constants');
@@ -24,6 +23,7 @@ describe('serviceGet API', () => {
         parsedHost: 's3.amazonaws.com',
         headers: { host: 's3.amazonaws.com' },
         url: '/',
+        actionImplicitDenies: false,
     };
 
     it('should return the list of buckets owned by the user', done => {
@@ -79,7 +79,7 @@ describe('serviceGet API', () => {
     it('should prevent anonymous user from accessing getService API', done => {
         const publicAuthInfo = makeAuthInfo(constants.publicId);
         serviceGet(publicAuthInfo, serviceGetRequest, log, err => {
-            assert.deepStrictEqual(err, errors.AccessDenied);
+            assert.strictEqual(err.is.AccessDenied, true);
             done();
         });
     });

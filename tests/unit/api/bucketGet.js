@@ -4,13 +4,11 @@ const querystring = require('querystring');
 const async = require('async');
 const { parseString } = require('xml2js');
 
-const bucketGet = require('../../../lib/api/bucketGet');
+const { bucketGet } = require('../../../lib/api/bucketGet');
 const { bucketPut } = require('../../../lib/api/bucketPut');
 const objectPut = require('../../../lib/api/objectPut');
 const { cleanup, DummyRequestLogger, makeAuthInfo } = require('../helpers');
 const DummyRequest = require('../DummyRequest');
-
-const { errors } = require('arsenal');
 
 const authInfo = makeAuthInfo('accessKey1');
 const bucketName = 'bucketname';
@@ -63,6 +61,7 @@ const baseGetRequest = {
     bucketName,
     namespace,
     headers: { host: '/' },
+    actionImplicitDenies: false,
 };
 const baseUrl = `/${bucketName}`;
 
@@ -154,6 +153,13 @@ const tests = [
             assert.strictEqual(result.ListBucketResult.MaxKeys[0], '99999'),
     },
     {
+        name: 'return max-keys number from request even when value is 0',
+        request: Object.assign({ query: { 'max-keys': '0' }, url: baseUrl },
+            baseGetRequest),
+        assertion: result =>
+            assert.strictEqual(result.ListBucketResult.MaxKeys[0], '0'),
+    },
+    {
         name: 'url encode object key name if requested',
         request: Object.assign(
             { query: { 'encoding-type': 'url' }, url: baseUrl },
@@ -199,7 +205,7 @@ describe('bucketGet API', () => {
         const testGetRequest = Object.assign({ query: { 'max-keys': '-1' } },
             baseGetRequest);
         bucketGet(authInfo, testGetRequest, log, err => {
-            assert.deepStrictEqual(err, errors.InvalidArgument);
+            assert.strictEqual(err.is.InvalidArgument, true);
             done();
         });
     });
@@ -273,6 +279,13 @@ const testsForV2 = [...tests,
                 = result.ListBucketResult.Contents.filter(c => c.Owner);
             assert.strictEqual(owners.length, 0);
         },
+    },
+    {
+        name: 'return max-keys number from request even when value is 0',
+        request: Object.assign({ query: { 'max-keys': '0' }, url: baseUrl },
+            baseGetRequest),
+        assertion: result =>
+            assert.strictEqual(result.ListBucketResult.MaxKeys[0], '0'),
     },
 ];
 
