@@ -20,6 +20,11 @@ describe('Middleware: Collect Response Headers', () => {
         });
     });
 
+    it('should add the Accept-Ranges header', () => {
+        const headers = collectResponseHeaders({});
+        assert.strictEqual(headers['Accept-Ranges'], 'bytes');
+    });
+
     it('should return an undefined value when x-amz-website-redirect-location' +
        ' is empty', () => {
         const objectMD = { 'x-amz-website-redirect-location': '' };
@@ -33,5 +38,19 @@ describe('Middleware: Collect Response Headers', () => {
         const headers = collectResponseHeaders(obj);
         assert.strictEqual(headers['x-amz-website-redirect-location'],
             'google.com');
+    });
+
+    it('should not set flag when transition not in progress', () => {
+        const obj = {};
+        const headers = collectResponseHeaders(obj);
+        assert.strictEqual(headers['x-amz-scal-transition-in-progress'], undefined);
+        assert.strictEqual(headers['x-amz-meta-scal-s3-transition-in-progress'], undefined);
+    });
+
+    it('should set flag when transition in progress', () => {
+        const obj = { 'x-amz-scal-transition-in-progress': 'true' };
+        const headers = collectResponseHeaders(obj);
+        assert.strictEqual(headers['x-amz-scal-transition-in-progress'], undefined);
+        assert.strictEqual(headers['x-amz-meta-scal-s3-transition-in-progress'], true);
     });
 });

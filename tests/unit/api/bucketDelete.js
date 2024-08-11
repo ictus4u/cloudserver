@@ -2,7 +2,6 @@ const crypto = require('crypto');
 const assert = require('assert');
 const async = require('async');
 const { parseString } = require('xml2js');
-const { errors } = require('arsenal');
 
 const bucketDelete = require('../../../lib/api/bucketDelete');
 const { bucketPut } = require('../../../lib/api/bucketPut');
@@ -88,6 +87,7 @@ describe('bucketDelete API', () => {
         namespace,
         headers: {},
         url: `/${bucketName}`,
+        actionImplicitDenies: false,
     };
 
     const initiateRequest = {
@@ -96,6 +96,7 @@ describe('bucketDelete API', () => {
         objectKey: objectName,
         headers: { host: `${bucketName}.s3.amazonaws.com` },
         url: `/${objectName}?uploads`,
+        actionImplicitDenies: false,
     };
 
     it('should return an error if the bucket is not empty', done => {
@@ -112,7 +113,7 @@ describe('bucketDelete API', () => {
             objectPut(authInfo, testPutObjectRequest, undefined, log, err => {
                 assert.strictEqual(err, null);
                 bucketDelete(authInfo, testRequest, log, err => {
-                    assert.deepStrictEqual(err, errors.BucketNotEmpty);
+                    assert.strictEqual(err.is.BucketNotEmpty, true);
                     metadata.getBucket(bucketName, log, (err, md) => {
                         assert.strictEqual(md.getName(), bucketName);
                         metadata.listObject(usersBucket,
@@ -169,7 +170,7 @@ describe('bucketDelete API', () => {
     it('should prevent anonymous user delete bucket API access', done => {
         const publicAuthInfo = makeAuthInfo(constants.publicId);
         bucketDelete(publicAuthInfo, testRequest, log, err => {
-            assert.deepStrictEqual(err, errors.AccessDenied);
+            assert.strictEqual(err.is.AccessDenied, true);
             done();
         });
     });

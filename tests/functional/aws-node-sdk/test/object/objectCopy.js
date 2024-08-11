@@ -2,6 +2,7 @@ const assert = require('assert');
 const withV4 = require('../support/withV4');
 const BucketUtility = require('../../lib/utility/bucket-util');
 const changeObjectLock = require('../../../../utilities/objectLock-util');
+const { fakeMetadataTransition, fakeMetadataArchive } = require('../utils/init');
 
 const { taggingTests } = require('../../lib/utility/tagging');
 const genMaxSizeMetaHeaders
@@ -143,6 +144,7 @@ describe('Object Copy', () => {
             s3.getObject({ Bucket: destBucketName,
                 Key: destObjName }, (err, res) => {
                 checkNoError(err);
+                assert.strictEqual(res.StorageClass, undefined);
                 assert.strictEqual(res.Body.toString(),
                     content);
                 assert.deepStrictEqual(res.Metadata,
@@ -562,7 +564,8 @@ describe('Object Copy', () => {
             });
         });
 
-        it('should copy a 0 byte object to same destination', done => {
+        // TODO: disabled in CLDSRV-184 as only STANDARD class is supported
+        it.skip('should copy a 0 byte object to same destination', done => {
             const emptyFileETag = '"d41d8cd98f00b204e9800998ecf8427e"';
             s3.putObject({ Bucket: sourceBucketName, Key: sourceObjName,
                 Body: '' }, () => {
@@ -586,7 +589,8 @@ describe('Object Copy', () => {
             });
         });
 
-        it('should copy an object to a different destination and change ' +
+        // TODO: disabled in CLDSRV-184 as only STANDARD class is supported
+        it.skip('should copy an object to a different destination and change ' +
             'the storage class if storage class header provided', done => {
             s3.copyObject({ Bucket: destBucketName, Key: destObjName,
                 CopySource: `${sourceBucketName}/${sourceObjName}`,
@@ -603,7 +607,8 @@ describe('Object Copy', () => {
                 });
         });
 
-        it('should copy an object to the same destination and change the ' +
+        // TODO: disabled in CLDSRV-184 as only STANDARD class is supported
+        it.skip('should copy an object to the same destination and change the ' +
             'storage class if the storage class header provided', done => {
             s3.copyObject({ Bucket: sourceBucketName, Key: sourceObjName,
                 CopySource: `${sourceBucketName}/${sourceObjName}`,
@@ -1217,10 +1222,83 @@ describe('Object Copy', () => {
                 done();
             });
         });
+
+        it('should return InvalidStorageClass error when x-amz-storage-class header is provided ' +
+        'and not equal to STANDARD', done => {
+            s3.copyObject({
+                Bucket: destBucketName,
+                Key: destObjName,
+                CopySource: `${sourceBucketName}/${sourceObjName}`,
+                StorageClass: 'COLD',
+            }, err => {
+                    assert.strictEqual(err.code, 'InvalidStorageClass');
+                    assert.strictEqual(err.statusCode, 400);
+                    done();
+                });
+        });
+
+        it('should not copy a cold object', done => {
+            const archive = {
+                archiveInfo: {
+                    archiveId: '97a71dfe-49c1-4cca-840a-69199e0b0322',
+                    archiveVersion: 5577006791947779
+                },
+            };
+            fakeMetadataArchive(sourceBucketName, sourceObjName, undefined, archive, err => {
+                assert.ifError(err);
+                s3.copyObject({
+                    Bucket: destBucketName,
+                    Key: destObjName,
+                    CopySource: `${sourceBucketName}/${sourceObjName}`,
+                }, err => {
+                        assert.strictEqual(err.code, 'InvalidObjectState');
+                        assert.strictEqual(err.statusCode, 403);
+                        done();
+                    });
+            });
+        });
+
+        it('should copy an object when it\'s transitioning to cold', done => {
+            fakeMetadataTransition(sourceBucketName, sourceObjName, undefined, err => {
+                assert.ifError(err);
+                s3.copyObject({
+                    Bucket: destBucketName,
+                    Key: destObjName,
+                    CopySource: `${sourceBucketName}/${sourceObjName}`,
+                }, (err, res) => {
+                    successCopyCheck(err, res, originalMetadata,
+                        destBucketName, destObjName, done);
+                });
+            });
+        });
+
+        it('should copy restored object and reset storage class', done => {
+            const archiveCompleted = {
+                archiveInfo: {},
+                restoreRequestedAt: new Date(0),
+                restoreRequestedDays: 5,
+                restoreCompletedAt: new Date(10),
+                restoreWillExpireAt: new Date(10 + (5 * 24 * 60 * 60 * 1000)),
+            };
+            fakeMetadataArchive(sourceBucketName, sourceObjName, undefined, archiveCompleted, err => {
+                assert.ifError(err);
+                s3.copyObject({
+                    Bucket: destBucketName,
+                    Key: destObjName,
+                    CopySource: `${sourceBucketName}/${sourceObjName}`,
+                }, (err, res) => {
+                    successCopyCheck(err, res, originalMetadata,
+                        destBucketName, destObjName, done);
+                });
+            });
+        });
     });
 });
 
-describe('Object Copy with object lock enabled on both destination ' +
+const isCEPH = process.env.CI_CEPH !== undefined;
+const describeSkipIfCeph = isCEPH ? describe.skip : describe;
+
+describeSkipIfCeph('Object Copy with object lock enabled on both destination ' +
     'bucket and source bucket', () => {
     withV4(sigCfg => {
         let bucketUtil;

@@ -5,7 +5,7 @@ const { s3middleware } = require('arsenal');
 const withV4 = require('../../support/withV4');
 const BucketUtility = require('../../../lib/utility/bucket-util');
 const {
-    describeSkipIfNotMultiple,
+    describeSkipIfNotMultipleOrCeph,
     fileLocation,
     awsS3,
     awsLocation,
@@ -14,6 +14,7 @@ const {
     azureLocationMismatch,
     getAzureClient,
     getAzureContainerName,
+    genUniqID,
 } = require('../utils');
 
 const azureMpuUtils = s3middleware.azureHelper.mpuUtils;
@@ -33,20 +34,22 @@ let bucketUtil;
 
 function getCheck(key, bucketMatch, cb) {
     let azureKey = key;
-    s3.getObject({ Bucket: azureContainerName, Key: azureKey },
-    (err, s3Res) => {
+    s3.getObject({ Bucket: azureContainerName, Key: azureKey }, (err, s3Res) => {
         assert.equal(err, null, `Err getting object from S3: ${err}`);
         assert.strictEqual(s3Res.ETag, `"${s3MD5}"`);
 
         if (!bucketMatch) {
             azureKey = `${azureContainerName}/${key}`;
         }
-        azureClient.getBlobProperties(azureContainerName, azureKey,
-        (err, azureRes) => {
-            assert.equal(err, null, `Err getting object from Azure: ${err}`);
-            assert.strictEqual(expectedContentLength, azureRes.contentLength);
-            cb();
-        });
+        azureClient.getContainerClient(azureContainerName).getProperties(azureKey).then(
+            azureRes => {
+                assert.strictEqual(expectedContentLength, azureRes.contentLength);
+                cb();
+            },
+            err => {
+                assert.equal(err, null, `Err getting object from Azure: ${err}`);
+                cb();
+            });
     });
 }
 
@@ -60,11 +63,14 @@ function mpuSetup(key, location, cb) {
                 Metadata: { 'scal-location-constraint': location },
             };
             s3.createMultipartUpload(params, (err, res) => {
+                if (err) {
+                    return next(err);
+                }
                 const uploadId = res.UploadId;
                 assert(uploadId);
                 assert.strictEqual(res.Bucket, azureContainerName);
                 assert.strictEqual(res.Key, key);
-                next(err, uploadId);
+                return next(null, uploadId);
             });
         },
         (uploadId, next) => {
@@ -76,8 +82,11 @@ function mpuSetup(key, location, cb) {
                 Body: smallBody,
             };
             s3.uploadPart(partParams, (err, res) => {
+                if (err) {
+                    return next(err);
+                }
                 partArray.push({ ETag: res.ETag, PartNumber: 1 });
-                next(err, uploadId);
+                return next(null, uploadId);
             });
         },
         (uploadId, next) => {
@@ -89,8 +98,11 @@ function mpuSetup(key, location, cb) {
                 Body: bigBody,
             };
             s3.uploadPart(partParams, (err, res) => {
+                if (err) {
+                    return next(err);
+                }
                 partArray.push({ ETag: res.ETag, PartNumber: 2 });
-                next(err, uploadId);
+                return next(null, uploadId);
             });
         },
     ], (err, uploadId) => {
@@ -100,12 +112,12 @@ function mpuSetup(key, location, cb) {
     });
 }
 
-describeSkipIfNotMultiple('Complete MPU API for Azure data backend',
+describeSkipIfNotMultipleOrCeph('Complete MPU API for Azure data backend',
 function testSuite() {
     this.timeout(150000);
     withV4(sigCfg => {
         beforeEach(function beFn() {
-            this.currentTest.key = `somekey-${Date.now()}`;
+            this.currentTest.key = `somekey-${genUniqID()}`;
             bucketUtil = new BucketUtility('default', sigCfg);
             s3 = bucketUtil.s3;
             this.currentTest.awsClient = awsS3;

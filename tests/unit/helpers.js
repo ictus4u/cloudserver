@@ -72,6 +72,7 @@ function makeAuthInfo(accessKey, userName) {
             + 'cd47ef2be',
         accessKey2: '79a59df900b949e55d96a1e698fbacedfd6e09d98eacf8f8d5218e7'
             + 'cd47ef2bf',
+        lifecycleKey1: '0123456789abcdef/lifecycle',
         default: crypto.randomBytes(32).toString('hex'),
     };
     canIdMap[constants.publicId] = constants.publicId;
@@ -260,6 +261,10 @@ class DummyRequestLogger {
         return 'dummy:Serialized:Uids';
     }
 
+    getUids() {
+        return this.getSerializedUids().split(':');
+    }
+
     addDefaultFields(fields) {
         Object.assign(this.defaultFields, fields);
     }
@@ -335,6 +340,7 @@ class CorsConfigTester {
             },
             url: '/?cors',
             query: { cors: '' },
+            actionImplicitDenies: false,
         };
         if (method === 'PUT') {
             request.post = body || this.constructXml();
@@ -376,6 +382,7 @@ const versioningTestUtils = {
             },
             url: '/?versioning',
             query: { versioning: '' },
+            actionImplicitDenies: false,
         };
         const xml = '<VersioningConfiguration ' +
         'xmlns="http://s3.amazonaws.com/doc/2006-03-01/">' +
@@ -426,6 +433,25 @@ class TaggingConfigTester {
             objectKey: objectName,
             url: '/?tagging',
             query: { tagging: '' },
+            actionImplicitDenies: false,
+        };
+        if (method === 'PUT') {
+            request.post = body || this.constructXml();
+            request.headers['content-md5'] = crypto.createHash('md5')
+                .update(request.post, 'utf8').digest('base64');
+        }
+        return request;
+    }
+
+    createBucketTaggingRequest(method, bucketName, body, implicitDeny = false) {
+        const request = {
+            bucketName,
+            headers: {
+                host: `${bucketName}.s3.amazonaws.com`,
+            },
+            url: '/?tagging',
+            query: { tagging: '' },
+            actionImplicitDenies: implicitDeny,
         };
         if (method === 'PUT') {
             request.post = body || this.constructXml();

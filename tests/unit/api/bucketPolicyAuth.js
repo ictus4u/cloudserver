@@ -4,6 +4,7 @@ const constants = require('../../../constants');
 const { isBucketAuthorized, isObjAuthorized, validatePolicyResource }
     = require('../../../lib/api/apiUtils/authorization/permissionChecks');
 const { DummyRequestLogger, makeAuthInfo } = require('../helpers');
+const DummyRequest = require('../DummyRequest');
 
 const accessKey = 'accessKey1';
 const altAccessKey = 'accessKey2';
@@ -45,6 +46,7 @@ const authTests = [
         keyToChange: 'Principal',
         bucketValue: { CanonicalUser: [altAcctCanonicalId] },
         objectValue: { CanonicalUser: [altAcctCanonicalId] },
+        impDenies: {},
         expected: true,
     },
     {
@@ -56,6 +58,7 @@ const authTests = [
         keyToChange: 'Principal',
         bucketValue: { AWS: user1AuthInfo.getArn() },
         objectValue: { AWS: user1AuthInfo.getArn() },
+        impDenies: {},
         expected: true,
     },
     {
@@ -67,6 +70,7 @@ const authTests = [
         keyToChange: 'Principal',
         bucketValue: { AWS: authInfo.getArn() },
         objectValue: { AWS: authInfo.getArn() },
+        impDenies: {},
         expected: true,
     },
     {
@@ -78,6 +82,7 @@ const authTests = [
         keyToChange: 'Principal',
         bucketValue: { AWS: accountId },
         objectValue: { AWS: accountId },
+        impDenies: {},
         expected: true,
     },
     {
@@ -90,6 +95,7 @@ const authTests = [
         keyToChange: 'Principal',
         bucketValue: { AWS: accountId },
         objectValue: { AWS: accountId },
+        impDenies: {},
         expected: true,
     },
     {
@@ -102,6 +108,7 @@ const authTests = [
         keyToChange: 'Principal',
         bucketValue: { AWS: altAcctId },
         objectValue: { AWS: altAcctId },
+        impDenies: {},
         expected: true,
     },
     {
@@ -114,6 +121,7 @@ const authTests = [
         keyToChange: 'Principal',
         bucketValue: { AWS: authInfo.getArn() },
         objectValue: { AWS: authInfo.getArn() },
+        impDenies: {},
         expected: true,
     },
     {
@@ -126,6 +134,7 @@ const authTests = [
         keyToChange: 'Principal',
         bucketValue: { AWS: altAcctUserAuthInfo.getArn() },
         objectValue: { AWS: altAcctUserAuthInfo.getArn() },
+        impDenies: {},
         expected: true,
     },
     {
@@ -138,6 +147,7 @@ const authTests = [
         keyToChange: 'Principal',
         bucketValue: { AWS: authInfo.getArn() },
         objectValue: { AWS: authInfo.getArn() },
+        impDenies: {},
         expected: false,
     },
     {
@@ -150,17 +160,19 @@ const authTests = [
         keyToChange: 'Principal',
         bucketValue: { AWS: user2AuthInfo.getArn() },
         objectValue: { AWS: user2AuthInfo.getArn() },
+        impDenies: {},
         expected: false,
     },
     {
         name: 'should deny access if principal doesn\'t match non-',
-        bucketId: altAcctAuthInfo,
+        bucketId: altAcctCanonicalId,
         bucketAuthInfo: altAcctAuthInfo,
-        objectId: altAcctAuthInfo,
+        objectId: altAcctCanonicalId,
         objectAuthInfo: altAcctAuthInfo,
         keyToChange: 'Principal',
         bucketValue: { CanonicalUser: [bucketOwnerCanonicalId] },
         objectValue: { CanonicalUser: [objectOwnerCanonicalId] },
+        impDenies: {},
         expected: false,
     },
     {
@@ -173,6 +185,7 @@ const authTests = [
         keyToChange: 'Action',
         bucketValue: ['s3:ListBucket'],
         objectValue: ['s3:PutObject'],
+        impDenies: {},
         expected: true,
     },
     {
@@ -185,6 +198,7 @@ const authTests = [
         keyToChange: 'Action',
         bucketValue: ['s3:GetBucketLocation'],
         objectValue: ['s3:GetObject'],
+        impDenies: {},
         expected: false,
     },
     {
@@ -196,6 +210,7 @@ const authTests = [
         keyToChange: 'Effect',
         bucketValue: 'Deny',
         objectValue: 'Deny',
+        impDenies: {},
         expected: true,
     },
     {
@@ -207,6 +222,7 @@ const authTests = [
         keyToChange: 'Effect',
         bucketValue: 'Deny',
         objectValue: 'Deny',
+        impDenies: {},
         expected: false,
     },
 ];
@@ -371,12 +387,32 @@ describe('bucket policy authorization', () => {
                 newPolicy.Statement[0][t.keyToChange] = t.objectValue;
                 bucket.setBucketPolicy(newPolicy);
                 const allowed = isObjAuthorized(bucket, object, objAction,
-                    t.objectId, t.objectAuthInfo, log);
+                    t.objectId, t.objectAuthInfo, log, null, t.impDenies);
                 assert.equal(allowed, t.expected);
                 done();
             });
         });
 
+        it('should allow access to non-object owner for objectHead action with s3:GetObject permission',
+        function itFn(done) {
+            const newPolicy = this.test.basePolicy;
+            newPolicy.Statement[0].Action = ['s3:GetObject'];
+            bucket.setBucketPolicy(newPolicy);
+            const allowed = isObjAuthorized(bucket, object, 'objectHead',
+                                            altAcctCanonicalId, altAcctAuthInfo, log);
+            assert.equal(allowed, true);
+            done();
+        });
+        it('should deny access to non-object owner for objectHead action without s3:GetObject permission',
+        function itFn(done) {
+            const newPolicy = this.test.basePolicy;
+            newPolicy.Statement[0].Action = ['s3:PutObject'];
+            bucket.setBucketPolicy(newPolicy);
+            const allowed = isObjAuthorized(bucket, object, 'objectHead',
+                                            altAcctCanonicalId, altAcctAuthInfo, log);
+            assert.equal(allowed, false);
+            done();
+        });
         it('should deny access to non-object owner if two statements apply ' +
         'to principal but one denies access', function itFn(done) {
             const newPolicy = this.test.basePolicy;
@@ -400,6 +436,48 @@ describe('bucket policy authorization', () => {
             assert.equal(allowed, false);
             done();
         });
+
+        it('should allow access when implicitDeny true with Allow bucket policy', function itFn() {
+            const requestTypes = ['objectPut', 'objectDelete'];
+            const impDenies = {
+                objectPut: true,
+                objectDelete: true,
+            };
+            const newPolicy = this.test.basePolicy;
+            newPolicy.Statement[0].Action = ['s3:PutObject', 's3:DeleteObject'];
+            bucket.setBucketPolicy(newPolicy);
+
+            const results = requestTypes.map(type => {
+                const allowed = isObjAuthorized(bucket, object, type,
+                altAcctCanonicalId, altAcctAuthInfo, log, null, impDenies);
+                return allowed;
+            });
+            assert.deepStrictEqual(results, [true, true]);
+        });
+
+        it('should deny access when implicitDeny true with Deny bucket policy', function itFn() {
+            const requestTypes = ['objectPut', 'objectDelete'];
+            const impDenies = {
+                objectPut: true,
+                objectDelete: true,
+            };
+            const newPolicy = this.test.basePolicy;
+            newPolicy.Statement[1] = {
+                Effect: 'Deny',
+                Principal: { CanonicalUser: [altAcctCanonicalId] },
+                Resource: `arn:aws:s3:::${bucket.getName()}/*`,
+                Action: 's3:*',
+            };
+            newPolicy.Statement[0].Action = ['s3:PutObject', 's3:DeleteObject'];
+            bucket.setBucketPolicy(newPolicy);
+
+            const results = requestTypes.map(type => {
+                const allowed = isObjAuthorized(bucket, object, type,
+                altAcctCanonicalId, altAcctAuthInfo, log, null, impDenies);
+                return allowed;
+            });
+            assert.deepStrictEqual(results, [false, false]);
+        });
     });
 
     describe('validate policy resource', () => {
@@ -422,6 +500,125 @@ describe('bucket policy authorization', () => {
             newPolicy.Statement[0].Resource = `arn:aws:s3:::${bucketName}`;
             assert.equal(validatePolicyResource(bucketName, newPolicy), false);
             done();
+        });
+    });
+
+    describe('bucketpolicy conditions', () => {
+        const newPolicyObjRetentionCondition = {
+            Version: '2012-10-17',
+            Statement: [
+                {
+                    Effect: 'Allow',
+                    Principal: {
+                        CanonicalUser: [altAcctCanonicalId],
+                    },
+                    Action: 's3:*',
+                    Resource: [
+                        `arn:aws:s3:::${bucket.getName()}`,
+                        `arn:aws:s3:::${bucket.getName()}/*`,
+                    ],
+                },
+                {
+                    Effect: 'Deny',
+                    Principal: {
+                        CanonicalUser: [altAcctCanonicalId],
+                    },
+                    Action: [
+                        's3:PutObjectRetention',
+                    ],
+                    Resource: [
+                        `arn:aws:s3:::${bucket.getName()}`,
+                        `arn:aws:s3:::${bucket.getName()}/*`,
+                    ],
+                    Condition: {
+                        NumericGreaterThan: {
+                            's3:object-lock-remaining-retention-days': 10,
+                        },
+                    },
+                },
+            ],
+        };
+
+        const newPolicyObjIpCondition = {
+            Version: '2012-10-17',
+            Statement: [
+                {
+                    Effect: 'Allow',
+                    Principal: {
+                        CanonicalUser: [altAcctCanonicalId],
+                    },
+                    Action: 's3:*',
+                    Resource: [
+                        `arn:aws:s3:::${bucket.getName()}`,
+                        `arn:aws:s3:::${bucket.getName()}/*`,
+                    ],
+                    Condition: {
+                        IpAddress: {
+                            'aws:SourceIp': '123.123.123.123',
+                        },
+                    },
+                },
+            ],
+        };
+
+        const testSuite = [
+            {
+                name: 'should allow access when retention within condition limit',
+                testedCondition: 's3:object-lock-remaining-retention-days',
+                requestType: 'objectPutRetention',
+                requestConditionKey: 'objectLockRetentionDays',
+                conditionValue: 8,
+                bucketPolicy: newPolicyObjRetentionCondition,
+                expectedVerdict: true,
+            },
+            {
+                name: 'should not allow access when retention outside condition limit',
+                testedCondition: 's3:object-lock-remaining-retention-days',
+                requestType: 'objectPutRetention',
+                requestConditionKey: 'objectLockRetentionDays',
+                conditionValue: 12,
+                bucketPolicy: newPolicyObjRetentionCondition,
+                expectedVerdict: false,
+            },
+            {
+                name: 'should allow access when IP is in condition',
+                testedCondition: 'aws:SourceIp',
+                requestType: 'objectPut',
+                requestConditionKey: 'socket',
+                conditionValue: { remoteAddress: '123.123.123.123' },
+                bucketPolicy: newPolicyObjIpCondition,
+                expectedVerdict: true,
+            },
+            {
+                name: 'should not allow access when IP is not in condition',
+                testedCondition: 'aws:SourceIp',
+                requestType: 'objectPut',
+                requestConditionKey: 'requesterIp',
+                conditionValue: { remoteAddress: '124.124.124.124' },
+                bucketPolicy: newPolicyObjIpCondition,
+                expectedVerdict: false,
+            },
+        ];
+
+        testSuite.forEach(t => {
+            it(t.name, () => {
+                bucket.setBucketPolicy(t.bucketPolicy);
+                const requestParams = {
+                    socket: {
+                        remoteAddress: '1.1.1.1',
+                    },
+                    bucketName: bucket.getName(),
+                    generalResource: `arn:aws:s3:::${bucket.getName()}`,
+                    specificResource: `arn:aws:s3:::${bucket.getName()}/*`,
+                };
+                requestParams[t.requestConditionKey] = t.conditionValue;
+
+                const request = new DummyRequest(requestParams);
+                const results = isObjAuthorized(bucket, object, t.requestType,
+                    altAcctCanonicalId, altAcctAuthInfo, log, request);
+                assert.strictEqual(results, t.expectedVerdict);
+            }
+        );
         });
     });
 });

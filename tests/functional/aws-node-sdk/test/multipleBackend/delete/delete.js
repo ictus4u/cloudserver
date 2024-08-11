@@ -8,15 +8,16 @@ const {
     fileLocation,
     awsLocation,
     awsLocationMismatch,
+    genUniqID,
 } = require('../utils');
 
-const bucket = 'buckettestmultiplebackenddelete';
-const memObject = `memObject-${Date.now()}`;
-const fileObject = `fileObject-${Date.now()}`;
-const awsObject = `awsObject-${Date.now()}`;
-const emptyObject = `emptyObject-${Date.now()}`;
-const bigObject = `bigObject-${Date.now()}`;
-const mismatchObject = `mismatchOjbect-${Date.now()}`;
+const bucket = `deleteaws${genUniqID()}`;
+const memObject = `memObject-${genUniqID()}`;
+const fileObject = `fileObject-${genUniqID()}`;
+const awsObject = `awsObject-${genUniqID()}`;
+const emptyObject = `emptyObject-${genUniqID()}`;
+const bigObject = `bigObject-${genUniqID()}`;
+const mismatchObject = `mismatchOjbect-${genUniqID()}`;
 const body = Buffer.from('I am a body', 'utf8');
 const bigBody = Buffer.alloc(10485760);
 
@@ -29,7 +30,7 @@ describeSkipIfNotMultiple('Multiple backend delete', () => {
             process.stdout.write('Creating bucket\n');
             bucketUtil = new BucketUtility('default', sigCfg);
             s3 = bucketUtil.s3;
-            return s3.createBucketPromsie({ Bucket: bucket })
+            return s3.createBucket({ Bucket: bucket }).promise()
             .catch(err => {
                 process.stdout.write(`Error creating bucket: ${err}\n`);
                 throw err;

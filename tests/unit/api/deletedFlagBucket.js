@@ -2,7 +2,7 @@ const crypto = require('crypto');
 const assert = require('assert');
 
 const BucketInfo = require('arsenal').models.BucketInfo;
-const bucketGet = require('../../../lib/api/bucketGet');
+const { bucketGet } = require('../../../lib/api/bucketGet');
 const bucketGetACL = require('../../../lib/api/bucketGetACL');
 const bucketGetCors = require('../../../lib/api/bucketGetCors');
 const bucketGetWebsite = require('../../../lib/api/bucketGetWebsite');
@@ -30,7 +30,7 @@ const listMultipartUploads = require('../../../lib/api/listMultipartUploads');
 const listParts = require('../../../lib/api/listParts');
 const metadata = require('../metadataswitch');
 const multipartDelete = require('../../../lib/api/multipartDelete');
-const objectDelete = require('../../../lib/api/objectDelete');
+const { objectDelete } = require('../../../lib/api/objectDelete');
 const objectGet = require('../../../lib/api/objectGet');
 const objectGetACL = require('../../../lib/api/objectGetACL');
 const objectHead = require('../../../lib/api/objectHead');
@@ -58,11 +58,13 @@ const baseTestRequest = {
     post: '',
     headers: { host: `${bucketName}.s3.amazonaws.com` },
     query: {},
+    actionImplicitDenies: false,
 };
 const serviceGetRequest = {
     parsedHost: 's3.amazonaws.com',
     headers: { host: 's3.amazonaws.com' },
     url: '/',
+    actionImplicitDenies: false,
 };
 
 const userBucketOwner = 'admin';

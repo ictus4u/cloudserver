@@ -33,6 +33,7 @@ const testChecks = [
         parsedHost: '127.1.2.3',
         locationReturn: 'scality-internal-file',
         isError: false,
+        expectedError: '',
     },
     {
         data: 'scality-internal-file',
@@ -40,6 +41,7 @@ const testChecks = [
         parsedHost: '127.1.0.0',
         locationReturn: undefined,
         isError: true,
+        expectedError: 'InvalidLocationConstraint',
     },
     {
         data: 'scality-internal-file',
@@ -47,6 +49,7 @@ const testChecks = [
         parsedHost: '127.0.0.1',
         locationReturn: config.restEndpoints['127.0.0.1'],
         isError: false,
+        expectedError: '',
     },
     {
         data: 'scality-internal-file',
@@ -54,6 +57,7 @@ const testChecks = [
         parsedHost: '127.3.2.1',
         locationReturn: 'us-east-1',
         isError: false,
+        expectedError: '',
     },
     {
         data: 'multiple',
@@ -61,6 +65,15 @@ const testChecks = [
         parsedHost: '127.3.2.1',
         locationReturn: 'us-east-1',
         isError: false,
+        expectedError: '',
+    },
+    {
+        data: 'multiple',
+        locationSent: 'location-dmf-v1',
+        parsedHost: '127.3.2.1',
+        locationReturn: 'location-dmf-v1',
+        isError: true,
+        expectedError: 'InvalidLocationConstraint',
     },
 ];
 
@@ -71,7 +84,7 @@ describe('checkLocationConstraint function', () => {
         config.backends.data = initialConfigData;
     });
     testChecks.forEach(testCheck => {
-        const returnText = testCheck.isError ? 'InvalidLocationConstraint error'
+        const returnText = testCheck.isError ? `${testCheck.expectedError} error`
         : 'the appropriate location constraint';
         it(`with data backend: "${testCheck.data}", ` +
         `location: "${testCheck.locationSent}",` +
@@ -84,7 +97,7 @@ describe('checkLocationConstraint function', () => {
             if (testCheck.isError) {
                 assert.notEqual(checkLocation.error, null,
                   'Expected failure but got success');
-                assert.strictEqual(checkLocation.error.is.InvalidLocationConstraint, true);
+                assert(checkLocation.error.is[testCheck.expectedError]);
             } else {
                 assert.ifError(checkLocation.error);
                 assert.strictEqual(checkLocation.locationConstraint,
@@ -105,7 +118,7 @@ describe('bucketPut API', () => {
         bucketPut(authInfo, testRequest, log, () => {
             bucketPut(otherAuthInfo, testRequest,
                 log, err => {
-                    assert.deepStrictEqual(err, errors.BucketAlreadyExists);
+                    assert.strictEqual(err.is.BucketAlreadyExists, true);
                     done();
                 });
         });
@@ -188,9 +201,9 @@ describe('bucketPut API', () => {
             post: '',
         };
         bucketPut(authInfo, testRequest, log, err => {
-            assert.deepStrictEqual(err, errors.InvalidArgument);
+            assert.strictEqual(err.is.InvalidArgument, true);
             metadata.getBucket(bucketName, log, err => {
-                assert.deepStrictEqual(err, errors.NoSuchBucket);
+                assert.strictEqual(err.is.NoSuchBucket, true);
                 done();
             });
         });
@@ -209,9 +222,9 @@ describe('bucketPut API', () => {
             post: '',
         };
         bucketPut(authInfo, testRequest, log, err => {
-            assert.deepStrictEqual(err, errors.InvalidArgument);
+            assert.strictEqual(err.is.InvalidArgument, true);
             metadata.getBucket(bucketName, log, err => {
-                assert.deepStrictEqual(err, errors.NoSuchBucket);
+                assert.strictEqual(err.is.NoSuchBucket, true);
                 done();
             });
         });
@@ -231,9 +244,9 @@ describe('bucketPut API', () => {
             post: '',
         };
         bucketPut(authInfo, testRequest, log, err => {
-            assert.deepStrictEqual(err, errors.UnresolvableGrantByEmailAddress);
+            assert.strictEqual(err.is.UnresolvableGrantByEmailAddress, true);
             metadata.getBucket(bucketName, log, err => {
-                assert.deepStrictEqual(err, errors.NoSuchBucket);
+                assert.strictEqual(err.is.NoSuchBucket, true);
                 done();
             });
         });
@@ -309,7 +322,7 @@ describe('bucketPut API', () => {
     it('should prevent anonymous user from accessing putBucket API', done => {
         const publicAuthInfo = makeAuthInfo(constants.publicId);
         bucketPut(publicAuthInfo, testRequest, log, err => {
-            assert.deepStrictEqual(err, errors.AccessDenied);
+            assert.strictEqual(err.is.AccessDenied, true);
         });
         done();
     });
@@ -336,6 +349,27 @@ describe('bucketPut API', () => {
                     bucketInfo.getLocationConstraint());
                 done();
             });
+        });
+    });
+
+    it('should deny put bucket to cold storage', done => {
+        const bucketName = 'cold-bucket-name';
+        const newRestEndpoint = 'location-dmf-v1';
+        const coldLocation = 'location-dmf-v1';
+
+        const req = {
+            ...testRequest,
+            parsedHost: newRestEndpoint,
+            bucketName,
+        };
+
+        const newRestEndpoints = Object.assign({}, config.restEndpoints);
+        newRestEndpoints[newRestEndpoint] = coldLocation;
+        config.setRestEndpoints(newRestEndpoints);
+
+        bucketPut(authInfo, req, log, err => {
+            assert.strictEqual(err.is.InvalidLocationConstraint, true);
+            done();
         });
     });
 
@@ -367,11 +401,10 @@ describe('bucketPut API', () => {
 
         it('should return error if location constraint config is not updated',
             done => bucketPut(authInfo, req, log, err => {
-                const expectedError = errors.InvalidLocationConstraint;
-                expectedError.description = 'value of the location you are ' +
+                assert.strictEqual(err.is.InvalidLocationConstraint, true);
+                assert.strictEqual(err.description, 'value of the location you are ' +
                     `attempting to set - ${newLCKey} - is not listed in the ` +
-                    'locationConstraint config';
-                assert.deepStrictEqual(err, expectedError);
+                    'locationConstraint config');
                 done();
             }));
 

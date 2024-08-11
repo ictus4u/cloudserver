@@ -1,7 +1,11 @@
 const assert = require('assert');
+const async = require('async');
+
 const { errors } = require('arsenal');
+const AuthInfo = require('arsenal').auth.AuthInfo;
 
 const { bucketPut } = require('../../../lib/api/bucketPut');
+const bucketPutPolicy = require('../../../lib/api/bucketPutPolicy');
 const constants = require('../../../constants');
 const { cleanup,
     DummyRequestLogger,
@@ -56,6 +60,7 @@ describe('putObjectACL API', () => {
             headers: { 'x-amz-acl': 'invalid-option' },
             url: `/${bucketName}/${objectName}?acl`,
             query: { acl: '' },
+            actionImplicitDenies: false,
         };
 
         bucketPut(authInfo, testPutBucketRequest, log, () => {
@@ -63,8 +68,7 @@ describe('putObjectACL API', () => {
                 (err, resHeaders) => {
                     assert.strictEqual(resHeaders.ETag, `"${correctMD5}"`);
                     objectPutACL(authInfo, testObjACLRequest, log, err => {
-                        assert
-                            .deepStrictEqual(err, errors.InvalidArgument);
+                        assert.strictEqual(err.is.InvalidArgument, true);
                         done();
                     });
                 });
@@ -79,6 +83,7 @@ describe('putObjectACL API', () => {
             headers: { 'x-amz-acl': 'public-read-write' },
             url: `/${bucketName}/${objectName}?acl`,
             query: { acl: '' },
+            actionImplicitDenies: false,
         };
 
         bucketPut(authInfo, testPutBucketRequest, log, () => {
@@ -108,6 +113,7 @@ describe('putObjectACL API', () => {
             headers: { 'x-amz-acl': 'public-read' },
             url: `/${bucketName}/${objectName}?acl`,
             query: { acl: '' },
+            actionImplicitDenies: false,
         };
 
         const testObjACLRequest2 = {
@@ -117,6 +123,7 @@ describe('putObjectACL API', () => {
             headers: { 'x-amz-acl': 'authenticated-read' },
             url: `/${bucketName}/${objectName}?acl`,
             query: { acl: '' },
+            actionImplicitDenies: false,
         };
 
         bucketPut(authInfo, testPutBucketRequest, log, () => {
@@ -162,6 +169,7 @@ describe('putObjectACL API', () => {
             },
             url: `/${bucketName}/${objectName}?acl`,
             query: { acl: '' },
+            actionImplicitDenies: false,
         };
         bucketPut(authInfo, testPutBucketRequest, log, () => {
             objectPut(authInfo, testPutObjectRequest, undefined, log,
@@ -204,6 +212,7 @@ describe('putObjectACL API', () => {
             },
             url: `/${bucketName}/${objectName}?acl`,
             query: { acl: '' },
+            actionImplicitDenies: false,
         };
 
         bucketPut(authInfo, testPutBucketRequest, log, () => {
@@ -234,6 +243,7 @@ describe('putObjectACL API', () => {
             url: `/${bucketName}/${objectName}?acl`,
             post: [Buffer.from(acp.getXml(), 'utf8')],
             query: { acl: '' },
+            actionImplicitDenies: false,
         };
 
         bucketPut(authInfo, testPutBucketRequest, log, () => {
@@ -271,14 +281,14 @@ describe('putObjectACL API', () => {
             url: `/${bucketName}/${objectName}?acl`,
             post: [Buffer.from(acp.getXml(), 'utf8')],
             query: { acl: '' },
+            actionImplicitDenies: false,
         };
 
         bucketPut(authInfo, testPutBucketRequest, log, () => {
             objectPut(authInfo, testPutObjectRequest, undefined, log,
                 () => {
                     objectPutACL(authInfo, testObjACLRequest, log, err => {
-                        assert.deepStrictEqual(err,
-                            errors.AccessDenied);
+                        assert.strictEqual(err.is.AccessDenied, true);
                         done();
                     });
                 });
@@ -299,6 +309,7 @@ describe('putObjectACL API', () => {
             url: `/${bucketName}/${objectName}?acl`,
             post: [Buffer.from(acp.getXml(), 'utf8')],
             query: { acl: '' },
+            actionImplicitDenies: false,
         };
 
         bucketPut(authInfo, testPutBucketRequest, log, () => {
@@ -337,6 +348,7 @@ describe('putObjectACL API', () => {
             url: `/${bucketName}/${objectName}?acl`,
             post: [Buffer.from(acp.getXml(), 'utf8')],
             query: { acl: '' },
+            actionImplicitDenies: false,
         };
 
 
@@ -366,6 +378,7 @@ describe('putObjectACL API', () => {
             url: `/${bucketName}/${objectName}?acl`,
             post: [Buffer.from(modifiedXml, 'utf8')],
             query: { acl: '' },
+            actionImplicitDenies: false,
         };
 
         bucketPut(authInfo, testPutBucketRequest, log, () => {
@@ -373,8 +386,7 @@ describe('putObjectACL API', () => {
                 (err, resHeaders) => {
                     assert.strictEqual(resHeaders.ETag, `"${correctMD5}"`);
                     objectPutACL(authInfo, testObjACLRequest, log, err => {
-                        assert.deepStrictEqual(err,
-                            errors.MalformedACLError);
+                        assert.strictEqual(err.is.MalformedACLError, true);
                         done();
                     });
                 });
@@ -394,6 +406,7 @@ describe('putObjectACL API', () => {
             url: `/${bucketName}/${objectName}?acl`,
             post: [Buffer.from(modifiedXml, 'utf8')],
             query: { acl: '' },
+            actionImplicitDenies: false,
         };
 
 
@@ -402,7 +415,7 @@ describe('putObjectACL API', () => {
                 (err, resHeaders) => {
                     assert.strictEqual(resHeaders.ETag, `"${correctMD5}"`);
                     objectPutACL(authInfo, testObjACLRequest, log, err => {
-                        assert.deepStrictEqual(err, errors.MalformedXML);
+                        assert.strictEqual(err.is.MalformedXML, true);
                         done();
                     });
                 });
@@ -422,6 +435,7 @@ describe('putObjectACL API', () => {
             url: `/${bucketName}/${objectName}?acl`,
             post: [Buffer.from(acp.getXml(), 'utf8')],
             query: { acl: '' },
+            actionImplicitDenies: false,
         };
 
         bucketPut(authInfo, testPutBucketRequest, log, () => {
@@ -429,7 +443,7 @@ describe('putObjectACL API', () => {
                 (err, resHeaders) => {
                     assert.strictEqual(resHeaders.ETag, `"${correctMD5}"`);
                     objectPutACL(authInfo, testObjACLRequest, log, err => {
-                        assert.deepStrictEqual(err, errors.InvalidArgument);
+                        assert.strictEqual(err.is.InvalidArgument, true);
                         done();
                     });
                 });
@@ -450,6 +464,7 @@ describe('putObjectACL API', () => {
             },
             url: `/${bucketName}/${objectName}?acl`,
             query: { acl: '' },
+            actionImplicitDenies: false,
         };
 
         bucketPut(authInfo, testPutBucketRequest, log, () => {
@@ -457,10 +472,232 @@ describe('putObjectACL API', () => {
                 (err, resHeaders) => {
                     assert.strictEqual(resHeaders.ETag, `"${correctMD5}"`);
                     objectPutACL(authInfo, testObjACLRequest, log, err => {
-                        assert.deepStrictEqual(err, errors.InvalidArgument);
+                        assert.strictEqual(err.is.InvalidArgument, true);
                         done();
                     });
                 });
+        });
+    });
+
+    [
+        { headers: { 'x-amz-acl': 'public-read-write' }, type: 'ACL' },
+        { headers: { 'x-amz-grant-full-control': 'emailaddress="sampleaccount1@sampling.com"' }, type: 'FULL_CONTROL' },
+        { headers: { 'x-amz-grant-read': `uri=${constants.logId}` }, type: 'READ' },
+        { headers: { 'x-amz-grant-read-acp': `id=${ownerID}` }, type: 'READ_ACP' },
+        { headers: { 'x-amz-grant-write-acp': `id=${anotherID}` }, type: 'WRITE_ACP' },
+        { headers: {
+            'x-amz-grant-full-control': 'emailaddress="sampleaccount1@sampling.com"',
+            'x-amz-grant-read': `uri=${constants.logId}`,
+            'x-amz-grant-read-acp': `id=${ownerID}`,
+            'x-amz-grant-write-acp': `id=${anotherID}`,
+        }, type: 'ALL' },
+        { headers: {
+            'x-amz-grant-read': `uri=${constants.logId}`,
+            'x-amz-grant-read-acp': `id=${ownerID}`,
+            'x-amz-grant-write-acp': `id=${anotherID}`,
+        }, type: 'READ/READ_ACP/WRITE_ACP' },
+        { headers: {
+            'x-amz-grant-full-control': 'emailaddress="sampleaccount1@sampling.com"',
+            'x-amz-grant-read-acp': `id=${ownerID}`,
+            'x-amz-grant-write-acp': `id=${anotherID}`,
+        }, type: 'FULL/READ_ACP/WRITE_ACP' },
+        { headers: {
+            'x-amz-grant-full-control': 'emailaddress="sampleaccount1@sampling.com"',
+            'x-amz-grant-read': `uri=${constants.logId}`,
+            'x-amz-grant-write-acp': `id=${anotherID}`,
+        }, type: 'FULL/READ/WRITE_ACP' },
+        { headers: {
+            'x-amz-grant-full-control': 'emailaddress="sampleaccount1@sampling.com"',
+            'x-amz-grant-read': `uri=${constants.logId}`,
+            'x-amz-grant-read-acp': `id=${ownerID}`,
+        }, type: 'FULL/READ/READ_ACP' },
+        { headers: {
+            'x-amz-grant-full-control': 'emailaddress="sampleaccount1@sampling.com"',
+            'x-amz-grant-read': `uri=${constants.logId}`,
+        }, type: 'FULL/READ' },
+        { headers: {
+            'x-amz-grant-full-control': 'emailaddress="sampleaccount1@sampling.com"',
+            'x-amz-grant-read-acp': `id=${ownerID}`,
+        }, type: 'FULL/READ_ACP' },
+        { headers: {
+            'x-amz-grant-full-control': 'emailaddress="sampleaccount1@sampling.com"',
+            'x-amz-grant-write-acp': `id=${anotherID}`,
+        }, type: 'FULL/WRITE_ACP' },
+        { headers: {
+            'x-amz-grant-read': `uri=${constants.logId}`,
+            'x-amz-grant-read-acp': `id=${ownerID}`,
+        }, type: 'READ/READ_ACP' },
+        { headers: {
+            'x-amz-grant-read': `uri=${constants.logId}`,
+            'x-amz-grant-write-acp': `id=${anotherID}`,
+        }, type: 'READ/WRITE_ACP' },
+        { headers: {
+            'x-amz-grant-read-acp': `id=${ownerID}`,
+            'x-amz-grant-write-acp': `id=${anotherID}`,
+        }, type: 'READ_ACP/WRITE_ACP' },
+    ].forEach(params => {
+        const { headers, type } = params;
+        it(`should set originOp to s3:ObjectAcl:Put when ACL is changed (${type})`, done => {
+            const testObjACLRequest = {
+                bucketName,
+                namespace,
+                objectKey: objectName,
+                headers,
+                url: `/${bucketName}/${objectName}?acl`,
+                query: { acl: '' },
+            };
+            bucketPut(authInfo, testPutBucketRequest, log, () => {
+                objectPut(authInfo, testPutObjectRequest, undefined, log,
+                    (err, resHeaders) => {
+                        assert.strictEqual(resHeaders.ETag, `"${correctMD5}"`);
+                        objectPutACL(authInfo, testObjACLRequest, log, err => {
+                            assert.strictEqual(err, null);
+                            metadata.getObjectMD(bucketName, objectName, {},
+                            log, (err, md) => {
+                                assert.strictEqual(md.originOp,
+                                's3:ObjectAcl:Put');
+                                done();
+                            });
+                        });
+                    });
+            });
+        });
+    });
+
+    it('should keep original originOp when ACL request do not produce change', done => {
+        const testObjACLRequest = {
+            bucketName,
+            namespace,
+            objectKey: objectName,
+            headers: { 'x-amz-acl': 'private' }, // keeping the default value
+            url: `/${bucketName}/${objectName}?acl`,
+            query: { acl: '' },
+        };
+
+        bucketPut(authInfo, testPutBucketRequest, log, () => {
+            objectPut(authInfo, testPutObjectRequest, undefined, log,
+                (err, resHeaders) => {
+                    assert.strictEqual(resHeaders.ETag, `"${correctMD5}"`);
+                    objectPutACL(authInfo, testObjACLRequest, log, err => {
+                        assert.strictEqual(err, null);
+                        metadata.getObjectMD(bucketName, objectName, {},
+                        log, (err, md) => {
+                            assert.strictEqual(md.originOp,
+                            's3:ObjectCreated:Put');
+                            done();
+                        });
+                    });
+                });
+        });
+    });
+
+    describe('with bucket policy', () => {
+        function getPolicyRequest(policy) {
+            return {
+                bucketName,
+                headers: {
+                    host: `${bucketName}.s3.amazonaws.com`,
+                },
+                post: JSON.stringify(policy),
+                actionImplicitDenies: false,
+            };
+        }
+        /** Additional fields are required on existing request mocks */
+        const requestFix = {
+            connection: { encrypted: false },
+            destroy: () => {},
+        };
+
+        beforeEach(done => {
+            async.waterfall([
+                next => bucketPut(authInfo, testPutBucketRequest, log, next),
+                (cors, next) => objectPut(authInfo,
+                    testPutObjectRequest, undefined, log, next),
+            ], err => {
+                assert.ifError(err);
+                done();
+            });
+        });
+
+        it('should succeed with a deny on unrelated object as non root',
+        done => {
+            const bucketPutPolicyRequest = getPolicyRequest({
+                Version: '2012-10-17',
+                Statement: [
+                    {
+                        Effect: 'Deny',
+                        Principal: '*',
+                        Action: ['s3:PutObjectAcl'],
+                        Resource: `arn:aws:s3:::${bucketName}/unrelated_obj`,
+                    },
+                ],
+            });
+            const testObjACLRequest = Object.assign({
+                socket: {
+                    remoteAddress: '1.1.1.1',
+                },
+                bucketName,
+                namespace,
+                objectKey: objectName,
+                headers: { 'x-amz-acl': 'public-read-write' },
+                url: `/${bucketName}/${objectName}?acl`,
+                query: { acl: '' },
+                actionImplicitDenies: false,
+            }, requestFix);
+            /** root user doesn't check bucket policy */
+            const authNotRoot = makeAuthInfo(canonicalID, 'not-root');
+            async.waterfall([
+                next => bucketPutPolicy(authInfo,
+                    bucketPutPolicyRequest, log, next),
+                (cors, next) => objectPutACL(authNotRoot,
+                    testObjACLRequest, log, next),
+                (headers, next) => metadata.getObjectMD(bucketName,
+                    objectName, {}, log, next),
+            ], (err, md) => {
+                assert.ifError(err);
+                assert.strictEqual(md.acl.Canned, 'public-read-write');
+                done();
+            });
+        });
+
+        it('should fail with an allow on unrelated object as public',
+        done => {
+            const bucketPutPolicyRequest = getPolicyRequest({
+                Version: '2012-10-17',
+                Statement: [
+                    {
+                        Effect: 'Allow',
+                        Principal: '*',
+                        Action: ['s3:PutObjectAcl'],
+                        Resource: `arn:aws:s3:::${bucketName}/unrelated_obj`,
+                    },
+                ],
+            });
+            const testObjACLRequest = Object.assign({
+                socket: {
+                    remoteAddress: '1.1.1.1',
+                },
+                bucketName,
+                namespace,
+                objectKey: objectName,
+                headers: { 'x-amz-acl': 'public-read-write' },
+                url: `/${bucketName}/${objectName}?acl`,
+                query: { acl: '' },
+                actionImplicitDenies: false,
+            }, requestFix);
+            const publicAuth = new AuthInfo({
+                canonicalID: constants.publicId,
+            });
+            async.waterfall([
+                next => bucketPutPolicy(authInfo,
+                    bucketPutPolicyRequest, log, next),
+                (cors, next) => objectPutACL(publicAuth,
+                    testObjACLRequest, log, next),
+            ], err => {
+                assert(err instanceof Error);
+                assert.strictEqual(err.code, errors.AccessDenied.code);
+                done();
+            });
         });
     });
 });

@@ -1,9 +1,8 @@
 const assert = require('assert');
 const crypto = require('crypto');
-const { errors } = require('arsenal');
 
 const BucketInfo = require('arsenal').models.BucketInfo;
-const bucketGet = require('../../../lib/api/bucketGet');
+const { bucketGet } = require('../../../lib/api/bucketGet');
 const bucketGetACL = require('../../../lib/api/bucketGetACL');
 const bucketGetCors = require('../../../lib/api/bucketGetCors');
 const bucketGetWebsite = require('../../../lib/api/bucketGetWebsite');
@@ -28,7 +27,7 @@ const listMultipartUploads = require('../../../lib/api/listMultipartUploads');
 const listParts = require('../../../lib/api/listParts');
 const metadata = require('../metadataswitch');
 const multipartDelete = require('../../../lib/api/multipartDelete');
-const objectDelete = require('../../../lib/api/objectDelete');
+const { objectDelete } = require('../../../lib/api/objectDelete');
 const objectGet = require('../../../lib/api/objectGet');
 const objectGetACL = require('../../../lib/api/objectGetACL');
 const objectHead = require('../../../lib/api/objectHead');
@@ -53,11 +52,13 @@ const baseTestRequest = {
     url: '/',
     post: '',
     headers: { host: `${bucketName}.s3.amazonaws.com` },
+    actionImplicitDenies: false,
 };
 const serviceGetRequest = {
     parsedHost: 's3.amazonaws.com',
     headers: { host: 's3.amazonaws.com' },
     url: '/',
+    actionImplicitDenies: false,
 };
 
 const userBucketOwner = 'admin';
@@ -101,7 +102,7 @@ describe('transient bucket handling', () => {
     it('putBucket request should return error if ' +
         'transient bucket created by different account', done => {
         bucketPut(otherAccountAuthInfo, baseTestRequest, log, err => {
-            assert.deepStrictEqual(err, errors.BucketAlreadyExists);
+            assert.strictEqual(err.is.BucketAlreadyExists, true);
             serviceGet(otherAccountAuthInfo, serviceGetRequest,
                 log, (err, data) => {
                     parseString(data, (err, result) => {
@@ -237,7 +238,7 @@ describe('transient bucket handling', () => {
         bucketDelete(authInfo, baseTestRequest, log, err => {
             assert.ifError(err);
             metadata.getBucket(bucketName, log, err => {
-                assert.deepStrictEqual(err, errors.NoSuchBucket);
+                assert.strictEqual(err.is.NoSuchBucket, true);
                 done();
             });
         });
@@ -247,7 +248,7 @@ describe('transient bucket handling', () => {
         'request is not from owner', done => {
         bucketDelete(otherAccountAuthInfo, baseTestRequest,
             log, err => {
-                assert.deepStrictEqual(err, errors.AccessDenied);
+                assert.strictEqual(err.is.AccessDenied, true);
                 done();
             });
     });
@@ -260,7 +261,7 @@ describe('transient bucket handling', () => {
         bucketGetRequest.query = {};
         bucketGet(authInfo, bucketGetRequest,
             log, err => {
-                assert.deepStrictEqual(err, errors.NoSuchBucket);
+                assert.strictEqual(err.is.NoSuchBucket, true);
                 done();
             });
     });
@@ -273,7 +274,7 @@ describe('transient bucket handling', () => {
         bucketGetACLRequest.query = { acl: '' };
         bucketGetACL(authInfo, bucketGetACLRequest,
             log, err => {
-                assert.deepStrictEqual(err, errors.NoSuchBucket);
+                assert.strictEqual(err.is.NoSuchBucket, true);
                 done();
             });
     });
@@ -281,7 +282,7 @@ describe('transient bucket handling', () => {
     it('bucketGetCors request on transient bucket should return ' +
         'NoSuchBucket error', done => {
         bucketGetCors(authInfo, baseTestRequest, log, err => {
-            assert.deepStrictEqual(err, errors.NoSuchBucket);
+            assert.strictEqual(err.is.NoSuchBucket, true);
             done();
         });
     });
@@ -297,7 +298,7 @@ describe('transient bucket handling', () => {
         bucketPutCorsRequest.headers['content-md5'] = crypto.createHash('md5')
             .update(bucketPutCorsRequest.post, 'utf8').digest('base64');
         bucketPutCors(authInfo, bucketPutCorsRequest, log, err => {
-            assert.deepStrictEqual(err, errors.NoSuchBucket);
+            assert.strictEqual(err.is.NoSuchBucket, true);
             done();
         });
     });
@@ -305,7 +306,7 @@ describe('transient bucket handling', () => {
     it('bucketDeleteCors request on transient bucket should return ' +
         'NoSuchBucket error', done => {
         bucketDeleteCors(authInfo, baseTestRequest, log, err => {
-            assert.deepStrictEqual(err, errors.NoSuchBucket);
+            assert.strictEqual(err.is.NoSuchBucket, true);
             done();
         });
     });
@@ -313,7 +314,7 @@ describe('transient bucket handling', () => {
     it('bucketGetWebsite request on transient bucket should return ' +
         'NoSuchBucket error', done => {
         bucketGetWebsite(authInfo, baseTestRequest, log, err => {
-            assert.deepStrictEqual(err, errors.NoSuchBucket);
+            assert.strictEqual(err.is.NoSuchBucket, true);
             done();
         });
     });
@@ -326,7 +327,7 @@ describe('transient bucket handling', () => {
         '<IndexDocument><Suffix>index.html</Suffix></IndexDocument>' +
         '</WebsiteConfiguration>';
         bucketPutWebsite(authInfo, bucketPutWebsiteRequest, log, err => {
-            assert.deepStrictEqual(err, errors.NoSuchBucket);
+            assert.strictEqual(err.is.NoSuchBucket, true);
             done();
         });
     });
@@ -334,7 +335,7 @@ describe('transient bucket handling', () => {
     it('bucketDeleteWebsite request on transient bucket should return ' +
         'NoSuchBucket error', done => {
         bucketDeleteWebsite(authInfo, baseTestRequest, log, err => {
-            assert.deepStrictEqual(err, errors.NoSuchBucket);
+            assert.strictEqual(err.is.NoSuchBucket, true);
             done();
         });
     });
@@ -343,7 +344,7 @@ describe('transient bucket handling', () => {
         'error', done => {
         bucketHead(authInfo, baseTestRequest,
             log, err => {
-                assert.deepStrictEqual(err, errors.NoSuchBucket);
+                assert.strictEqual(err.is.NoSuchBucket, true);
                 done();
             });
     });
@@ -357,7 +358,7 @@ describe('transient bucket handling', () => {
         completeMpuRequest.query = { uploadId };
         completeMultipartUpload(authInfo, completeMpuRequest,
             log, err => {
-                assert.deepStrictEqual(err, errors.NoSuchUpload);
+                assert.strictEqual(err.is.NoSuchUpload, true);
                 done();
             });
     });
@@ -371,7 +372,7 @@ describe('transient bucket handling', () => {
         listRequest.query = { uploadId };
         listParts(authInfo, listRequest,
             log, err => {
-                assert.deepStrictEqual(err, errors.NoSuchUpload);
+                assert.strictEqual(err.is.NoSuchUpload, true);
                 done();
             });
     });
@@ -396,7 +397,7 @@ describe('transient bucket handling', () => {
             config.locationConstraints[locationConstraint].
                 legacyAwsBehavior = true;
             multipartDelete(authInfo, deleteRequest, log, err => {
-                assert.deepStrictEqual(err, errors.NoSuchUpload);
+                assert.strictEqual(err.is.NoSuchUpload, true);
                 done();
             });
         });
@@ -422,7 +423,7 @@ describe('transient bucket handling', () => {
             partNumber: '1' };
         objectPutPart(authInfo, putPartRequest, undefined,
             log, err => {
-                assert.deepStrictEqual(err, errors.NoSuchUpload);
+                assert.strictEqual(err.is.NoSuchUpload, true);
                 done();
             });
     });
@@ -434,7 +435,7 @@ describe('transient bucket handling', () => {
         listRequest.query = {};
         listMultipartUploads(authInfo, listRequest,
             log, err => {
-                assert.deepStrictEqual(err, errors.NoSuchBucket);
+                assert.strictEqual(err.is.NoSuchBucket, true);
                 done();
             });
     });
@@ -444,7 +445,7 @@ describe('transient bucket handling', () => {
         done => {
             objectGet(authInfo, baseTestRequest, false,
             log, err => {
-                assert.deepStrictEqual(err, errors.NoSuchBucket);
+                assert.strictEqual(err.is.NoSuchBucket, true);
                 done();
             });
         });
@@ -453,7 +454,7 @@ describe('transient bucket handling', () => {
         'NoSuchBucket error', done => {
         objectGetACL(authInfo, baseTestRequest,
         log, err => {
-            assert.deepStrictEqual(err, errors.NoSuchBucket);
+            assert.strictEqual(err.is.NoSuchBucket, true);
             done();
         });
     });
@@ -462,7 +463,7 @@ describe('transient bucket handling', () => {
         'NoSuchBucket error', done => {
         objectHead(authInfo, baseTestRequest,
         log, err => {
-            assert.deepStrictEqual(err, errors.NoSuchBucket);
+            assert.strictEqual(err.is.NoSuchBucket, true);
             done();
         });
     });
@@ -471,7 +472,7 @@ describe('transient bucket handling', () => {
         'NoSuchBucket error', done => {
         objectPutACL(authInfo, baseTestRequest,
         log, err => {
-            assert.deepStrictEqual(err, errors.NoSuchBucket);
+            assert.strictEqual(err.is.NoSuchBucket, true);
             done();
         });
     });
@@ -480,7 +481,7 @@ describe('transient bucket handling', () => {
         'NoSuchBucket error', done => {
         objectDelete(authInfo, baseTestRequest,
         log, err => {
-            assert.deepStrictEqual(err, errors.NoSuchBucket);
+            assert.strictEqual(err.is.NoSuchBucket, true);
             done();
         });
     });

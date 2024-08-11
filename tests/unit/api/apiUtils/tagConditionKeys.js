@@ -24,6 +24,7 @@ const bucketPutReq = {
     bucketName,
     headers: { host: `${bucketName}.s3.amazonaws.com` },
     url: '/',
+    actionImplicitDenies: false,
 };
 
 const taggingUtil = new TaggingConfigTester();
@@ -99,6 +100,8 @@ describe('updateRequestContextsWithTags', () => {
             updateRequestContextsWithTags(objectGetReq, objectGetRequestContexts, 'objectGet', log,
             err => {
                 assert.ifError(err);
+                // FIXME introduced by CLDSRV-256, this syntax should be allowed by the linter
+                // eslint-disable-next-line no-restricted-syntax
                 for (const requestContext of objectGetRequestContexts) {
                     assert(requestContext.getNeedTagEval());
                     assert.strictEqual(requestContext.getExistingObjTag(),

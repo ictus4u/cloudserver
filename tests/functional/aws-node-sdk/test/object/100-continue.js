@@ -109,7 +109,6 @@ class ContinueRequestHandler {
             });
             res.on('error', err => cb(err));
         });
-        req.on('error', err => cb(err));
     }
 }
 

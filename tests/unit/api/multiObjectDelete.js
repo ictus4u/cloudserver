@@ -1,16 +1,22 @@
+const crypto = require('crypto');
 const assert = require('assert');
-const { errors } = require('arsenal');
+const { errors, storage } = require('arsenal');
 
-const { getObjMetadataAndDelete }
+const { decodeObjectVersion, getObjMetadataAndDelete, initializeMultiObjectDeleteWithBatchingSupport }
     = require('../../../lib/api/multiObjectDelete');
+const multiObjectDelete = require('../../../lib/api/multiObjectDelete');
 const { cleanup, DummyRequestLogger, makeAuthInfo } = require('../helpers');
-const { ds } = require('arsenal').storage.data.inMemory.datastore;
-const { metadata } = require('arsenal').storage.metadata.inMemory.metadata;
 const DummyRequest = require('../DummyRequest');
 const { bucketPut } = require('../../../lib/api/bucketPut');
+const metadataWrapper = require('../../../lib/metadata/wrapper');
 const objectPut = require('../../../lib/api/objectPut');
-
 const log = new DummyRequestLogger();
+
+const { metadata } = storage.metadata.inMemory.metadata;
+const { ds } = storage.data.inMemory.datastore;
+const metadataswitch = require('../metadataswitch');
+const sinon = require('sinon');
+
 const canonicalID = 'accessKey1';
 const authInfo = makeAuthInfo(canonicalID);
 const namespace = 'default';
@@ -19,6 +25,9 @@ const postBody = Buffer.from('I am a body', 'utf8');
 const contentLength = 2 * postBody.length;
 const objectKey1 = 'objectName1';
 const objectKey2 = 'objectName2';
+const metadataUtils = require('../../../lib/metadata/metadataUtils');
+const services = require('../../../lib/services');
+const { BucketInfo } = require('arsenal/build/lib/models');
 const testBucketPutRequest = new DummyRequest({
     bucketName,
     namespace,
@@ -33,10 +42,11 @@ describe('getObjMetadataAndDelete function for multiObjectDelete', () => {
         headers: {},
         parsedContentLength: contentLength,
     }, postBody);
-    const bucket = { getVersioningConfiguration: () => null };
+    const bucket = { getVersioningConfiguration: () => null, getQuota: () => 0 };
 
     beforeEach(done => {
         cleanup();
+        sinon.spy(metadataswitch, 'deleteObjectMD');
         testPutObjectRequest1 = new DummyRequest({
             bucketName,
             namespace,
@@ -66,6 +76,10 @@ describe('getObjMetadataAndDelete function for multiObjectDelete', () => {
                         });
                 });
         });
+    });
+
+    afterEach(() => {
+        sinon.restore();
     });
 
     it('should successfully get object metadata and then ' +
@@ -183,5 +197,206 @@ describe('getObjMetadataAndDelete function for multiObjectDelete', () => {
                 assert.strictEqual(totalContentLengthDeleted, contentLength);
                 done();
             });
+    });
+
+    it('should properly batch delete data even if there are errors in other objects', done => {
+        const deleteObjectStub = sinon.stub(services, 'deleteObject');
+        deleteObjectStub.onCall(0).callsArgWith(7, errors.InternalError);
+        deleteObjectStub.onCall(1).callsArgWith(7, null);
+
+        getObjMetadataAndDelete(authInfo, 'foo', request, bucketName, bucket,
+        true, [], [{ key: objectKey1 }, { key: objectKey2 }], log,
+        (err, quietSetting, errorResults, numOfObjects,
+            successfullyDeleted, totalContentLengthDeleted) => {
+            assert.ifError(err);
+            assert.strictEqual(quietSetting, true);
+            assert.deepStrictEqual(errorResults, [
+                {
+                    entry: {
+                        key: objectKey1,
+                    },
+                    error: errors.InternalError,
+                },
+            ]);
+            assert.strictEqual(numOfObjects, 1);
+            assert.strictEqual(totalContentLengthDeleted, contentLength / 2);
+            // Expect still in memory as we stubbed the function
+            assert.strictEqual(metadata.keyMaps.get(bucketName).has(objectKey1), true);
+            assert.strictEqual(metadata.keyMaps.get(bucketName).has(objectKey2), true);
+            // ensure object 2 only is in the list of successful deletions
+            assert.strictEqual(successfullyDeleted.length, 1);
+            assert.deepStrictEqual(successfullyDeleted[0].entry.key, objectKey2);
+            return done();
+        });
+    });
+
+    it('should pass overheadField to metadata', done => {
+        getObjMetadataAndDelete(authInfo, 'foo', request, bucketName, bucket,
+            true, [], [{ key: objectKey1 }, { key: objectKey2 }], log,
+            (err, quietSetting, errorResults, numOfObjects) => {
+                assert.ifError(err);
+                assert.strictEqual(numOfObjects, 2);
+                sinon.assert.calledWith(
+                    metadataswitch.deleteObjectMD,
+                    bucketName,
+                    objectKey1,
+                    sinon.match({ overheadField: sinon.match.array }),
+                    sinon.match.any,
+                    sinon.match.any
+                );
+                sinon.assert.calledWith(
+                    metadataswitch.deleteObjectMD,
+                    bucketName,
+                    objectKey2,
+                    sinon.match({ overheadField: sinon.match.array }),
+                    sinon.match.any,
+                    sinon.match.any
+                );
+                done();
+            });
+    });
+});
+
+describe('initializeMultiObjectDeleteWithBatchingSupport', () => {
+    let bucketName;
+    let inPlay;
+    let log;
+    let callback;
+
+    beforeEach(() => {
+        bucketName = 'myBucket';
+        inPlay = { one: 'object1', two: 'object2' };
+        log = {};
+        callback = sinon.spy();
+    });
+
+    afterEach(() => {
+        sinon.restore();
+    });
+
+    it('should not throw if the decodeObjectVersion function fails', done => {
+        const metadataGetObjectsStub = sinon.stub(metadataUtils, 'metadataGetObjects').yields(null, {});
+        sinon.stub(multiObjectDelete, 'decodeObjectVersion').returns([new Error('decode error')]);
+
+        initializeMultiObjectDeleteWithBatchingSupport(bucketName, inPlay, log, callback);
+
+        assert.strictEqual(metadataGetObjectsStub.callCount, 1);
+        sinon.assert.calledOnce(callback);
+        assert.strictEqual(callback.getCall(0).args[0], null);
+        assert.deepStrictEqual(callback.getCall(0).args[1], {});
+        done();
+    });
+
+    it('should call the batching method if the backend supports it', done => {
+        const metadataGetObjectsStub = sinon.stub(metadataUtils, 'metadataGetObjects').yields(null, {});
+        const objectVersion = 'someVersionId';
+        sinon.stub(multiObjectDelete, 'decodeObjectVersion').returns([null, objectVersion]);
+
+        initializeMultiObjectDeleteWithBatchingSupport(bucketName, inPlay, log, callback);
+
+        assert.strictEqual(metadataGetObjectsStub.callCount, 1);
+        sinon.assert.calledOnce(callback);
+        assert.strictEqual(callback.getCall(0).args[0], null);
+        done();
+    });
+
+    it('should not return an error if the metadataGetObjects function fails', done => {
+        const metadataGetObjectsStub =
+            sinon.stub(metadataUtils, 'metadataGetObjects').yields(new Error('metadata error'), null);
+        const objectVersion = 'someVersionId';
+        sinon.stub(multiObjectDelete, 'decodeObjectVersion').returns([null, objectVersion]);
+
+        initializeMultiObjectDeleteWithBatchingSupport(bucketName, inPlay, log, callback);
+
+        assert.strictEqual(metadataGetObjectsStub.callCount, 1);
+        sinon.assert.calledOnce(callback);
+        assert.strictEqual(callback.getCall(0).args[0] instanceof Error, false);
+        assert.deepStrictEqual(callback.getCall(0).args[1], {});
+        done();
+    });
+
+    it('should populate the cache when the backend supports it', done => {
+        const expectedOutput = {
+            one: {
+                value: 'object1',
+            },
+            two: {
+                value: 'object2',
+            },
+        };
+        const metadataGetObjectsStub = sinon.stub(metadataUtils, 'metadataGetObjects').yields(null, expectedOutput);
+        const objectVersion = 'someVersionId';
+        sinon.stub(multiObjectDelete, 'decodeObjectVersion').returns([null, objectVersion]);
+
+        initializeMultiObjectDeleteWithBatchingSupport(bucketName, inPlay, log, callback);
+
+        assert.strictEqual(metadataGetObjectsStub.callCount, 1);
+        sinon.assert.calledOnce(callback);
+        assert.strictEqual(callback.getCall(0).args[0], null);
+        assert.deepStrictEqual(callback.getCall(0).args[1], expectedOutput);
+        done();
+    });
+});
+
+describe('decodeObjectVersion function helper', () => {
+    it('should throw error for invalid version IDs', () => {
+        const ret = decodeObjectVersion({
+            versionId: '\0',
+        });
+        assert(ret[0].is.NoSuchVersion);
+    });
+
+    it('should return "null" for null versionId', () => {
+        const ret = decodeObjectVersion({
+            versionId: 'null',
+        });
+        assert.strictEqual(ret[0], null);
+        assert.strictEqual(ret[1], 'null');
+    });
+
+    it('should return null error on success', () => {
+        const ret = decodeObjectVersion({});
+        assert.ifError(ret[0]);
+        assert.deepStrictEqual(ret[1], undefined);
+    });
+});
+
+describe('multiObjectDelete function', () => {
+    afterEach(() => {
+        sinon.restore();
+    });
+
+    it('should not authorize the bucket and initial IAM authorization results', done => {
+        const post = '<Delete><Object><Key>objectname</Key></Object></Delete>';
+        const request = new DummyRequest({
+            bucketName: 'bucketname',
+            objectKey: 'objectname',
+            parsedHost: 'localhost',
+            headers: {
+                'content-md5': crypto.createHash('md5').update(post, 'utf8').digest('base64')
+            },
+            post,
+            url: '/bucketname',
+        });
+        const authInfo = makeAuthInfo('123456');
+
+        sinon.stub(metadataWrapper, 'getBucket').callsFake((bucketName, log, cb) =>
+            cb(null, new BucketInfo(
+                'bucketname',
+                '123456',
+                'accountA',
+                new Date().toISOString(),
+                15,
+            )));
+
+        multiObjectDelete.multiObjectDelete(authInfo, request, log, (err, res) => {
+            // Expected result is an access denied on the object, and no error, as the API was authorized
+            assert.strictEqual(err, null);
+            assert.strictEqual(
+                res.includes('<Error><Key>objectname</Key><Code>AccessDenied</Code>'),
+                true
+            );
+            done();
+        });
     });
 });

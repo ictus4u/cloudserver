@@ -7,12 +7,11 @@ const { parseString } = require('xml2js');
 
 const { bucketPut } = require('../../../lib/api/bucketPut');
 const bucketPutVersioning = require('../../../lib/api/bucketPutVersioning');
-const objectDelete = require('../../../lib/api/objectDelete');
+const { objectDelete } = require('../../../lib/api/objectDelete');
 const { multiObjectDelete } = require('../../../lib/api/multiObjectDelete');
 const metadata = require('../metadataswitch');
 const DummyRequest = require('../DummyRequest');
 const { cleanup, DummyRequestLogger, makeAuthInfo } = require('../helpers');
-const { config } = require('../../../lib/Config');
 
 const versionIdUtils = versioning.VersionID;
 
@@ -28,6 +27,7 @@ const testPutBucketRequest = new DummyRequest({
     namespace,
     headers: { host: `${bucketName}.s3.amazonaws.com` },
     url: '/',
+    actionImplicitDenies: false,
 });
 const testDeleteRequest = new DummyRequest({
     bucketName,
@@ -35,6 +35,7 @@ const testDeleteRequest = new DummyRequest({
     objectKey: objectName,
     headers: {},
     url: `/${bucketName}/${objectName}`,
+    actionImplicitDenies: false,
 });
 
 function _createBucketPutVersioningReq(status) {
@@ -45,6 +46,7 @@ function _createBucketPutVersioningReq(status) {
         },
         url: '/?versioning',
         query: { versioning: '' },
+        actionImplicitDenies: false,
     };
     const xml = '<VersioningConfiguration ' +
     'xmlns="http://s3.amazonaws.com/doc/2006-03-01/">' +
@@ -62,6 +64,7 @@ function _createMultiObjectDeleteRequest(numObjects) {
         },
         url: '/?delete',
         query: { delete: '' },
+        actionImplicitDenies: false,
     };
     const xml = [];
     xml.push('<?xml version="1.0" encoding="UTF-8"?>');
@@ -122,8 +125,7 @@ describe('delete marker creation', () => {
                 const mdVersionId = deleteMarkerMD.versionId;
                 assert.strictEqual(deleteMarkerMD.isDeleteMarker, true);
                 assert.strictEqual(
-                    versionIdUtils.encode(
-                        mdVersionId, config.versionIdEncodingType),
+                    versionIdUtils.encode(mdVersionId),
                     deleteResultVersionId);
                 assert.strictEqual(deleteMarkerMD['content-length'], 0);
                 assert.strictEqual(deleteMarkerMD.location, null);
