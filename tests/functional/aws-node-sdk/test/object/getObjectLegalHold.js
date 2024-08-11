@@ -13,7 +13,10 @@ const unlockedBucket = 'mock-bucket-no-lock';
 const key = 'mock-object-legalhold';
 const keyNoHold = 'mock-object-no-legalhold';
 
-describe('GET object legal hold', () => {
+const isCEPH = process.env.CI_CEPH !== undefined;
+const describeSkipIfCeph = isCEPH ? describe.skip : describe;
+
+describeSkipIfCeph('GET object legal hold', () => {
     withV4(sigCfg => {
         const bucketUtil = new BucketUtility('default', sigCfg);
         const s3 = bucketUtil.s3;
@@ -102,6 +105,19 @@ describe('GET object legal hold', () => {
                     VersionId: res.VersionId,
                 }, err => {
                     checkError(err, 'MethodNotAllowed', 405);
+                    done();
+                });
+            });
+        });
+
+        it('should return NoSuchKey if latest version is delete marker', done => {
+            s3.deleteObject({ Bucket: bucket, Key: key }, err => {
+                assert.ifError(err);
+                s3.getObjectLegalHold({
+                    Bucket: bucket,
+                    Key: key,
+                }, err => {
+                    checkError(err, 'NoSuchKey', 404);
                     done();
                 });
             });

@@ -15,13 +15,18 @@ const bucketPutRequest = {
     bucketName,
     headers: { host: `${bucketName}.s3.amazonaws.com` },
     url: '/',
+    actionImplicitDenies: false,
 };
 
 const expectedNotifConfig = {
     queueConfig: [
         {
             id: 'notification-id',
-            events: ['s3:ObjectCreated:*'],
+            events: [
+                's3:ObjectCreated:*',
+                's3:ObjectTagging:*',
+                's3:ObjectAcl:Put',
+            ],
             queueArn: 'arn:scality:bucketnotif:::target1',
             filterRules: undefined,
         },
@@ -34,6 +39,8 @@ function getNotifRequest(empty) {
         '<Id>notification-id</Id>' +
         '<Queue>arn:scality:bucketnotif:::target1</Queue>' +
         '<Event>s3:ObjectCreated:*</Event>' +
+        '<Event>s3:ObjectTagging:*</Event>' +
+        '<Event>s3:ObjectAcl:Put</Event>' +
         '</QueueConfiguration>';
 
     const notifXml = '<NotificationConfiguration xmlns="http://s3.amazonaws.com/doc/2006-03-01/">' +
@@ -46,6 +53,7 @@ function getNotifRequest(empty) {
             host: `${bucketName}.s3.amazonaws.com`,
         },
         post: notifXml,
+        actionImplicitDenies: false,
     };
     return putNotifConfigRequest;
 }

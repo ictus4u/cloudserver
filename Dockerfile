@@ -1,50 +1,60 @@
-FROM node:16.13.2-slim
-MAINTAINER Giorgio Regni <gr@scality.com>
+ARG NODE_VERSION=16.20-bullseye-slim
+
+FROM node:${NODE_VERSION} as builder
+
+WORKDIR /usr/src/app
+
+RUN apt-get update \
+    && apt-get install -y --no-install-recommends \
+        build-essential \
+        ca-certificates \
+        curl \
+        git \
+        gnupg2 \
+        jq \
+        python3 \
+        ssh \
+        wget \
+        libffi-dev \
+        zlib1g-dev \
+    && apt-get clean \
+    && mkdir -p /root/ssh \
+    && ssh-keyscan -H github.com > /root/ssh/known_hosts
+
+ENV PYTHON=python3
+COPY package.json yarn.lock /usr/src/app/
+RUN npm install typescript -g
+RUN yarn install --production --ignore-optional --frozen-lockfile --ignore-engines --network-concurrency 1
+
+################################################################################
+FROM node:${NODE_VERSION}
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        jq \
+    && rm -rf /var/lib/apt/lists/*
+
+ENV NO_PROXY localhost,127.0.0.1
+ENV no_proxy localhost,127.0.0.1
+
+EXPOSE 8000
+EXPOSE 8002
+
+RUN apt-get update && \
+    apt-get install -y --no-install-recommends \
+        jq \
+        tini \
+    && rm -rf /var/lib/apt/lists/*
 
 WORKDIR /usr/src/app
 
 # Keep the .git directory in order to properly report version
-COPY ./package.json yarn.lock ./
+COPY . /usr/src/app
+COPY --from=builder /usr/src/app/node_modules ./node_modules/
 
-ENV PYTHON=python3.9
-ENV PY_VERSION=3.9.7
-
-RUN apt-get update \
-    && apt-get install -y --no-install-recommends \
-    jq \
-    python \
-    git \
-    build-essential \
-    ssh \
-    ca-certificates \
-    wget \
-    libffi-dev \
-    zlib1g-dev \
-    && mkdir -p /root/ssh \
-    && ssh-keyscan -H github.com > /root/ssh/known_hosts
-
-RUN cd /tmp \
-    && wget https://www.python.org/ftp/python/$PY_VERSION/Python-$PY_VERSION.tgz \
-    && tar -C /usr/local/bin -xzvf Python-$PY_VERSION.tgz \
-    && cd /usr/local/bin/Python-$PY_VERSION \
-    && ./configure --enable-optimizations \
-    && make \
-    && make altinstall \
-    && rm -rf /tmp/Python-$PY_VERSION.tgz
-
-RUN yarn cache clean \
-    && yarn install --production --ignore-optional --ignore-engines --network-concurrency 1 \
-    && apt-get autoremove --purge -y python git build-essential \
-    && rm -rf /var/lib/apt/lists/* \
-    && yarn cache clean \
-    && rm -rf ~/.node-gyp \
-    && rm -rf /tmp/yarn-*
-
-COPY ./ ./
 
 VOLUME ["/usr/src/app/localData","/usr/src/app/localMetadata"]
 
-ENTRYPOINT ["/usr/src/app/docker-entrypoint.sh"]
-CMD [ "yarn", "start" ]
+ENTRYPOINT ["tini", "--", "/usr/src/app/docker-entrypoint.sh"]
 
-EXPOSE 8000
+CMD [ "yarn", "start" ]

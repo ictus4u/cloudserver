@@ -14,6 +14,7 @@ const objectPut = require('../../../lib/api/objectPut');
 const objectGet = require('../../../lib/api/objectGet');
 const objectPutPart = require('../../../lib/api/objectPutPart');
 const changeObjectLock = require('../../utilities/objectLock-util');
+const mdColdHelper = require('./utils/metadataMockColdStorage');
 
 const log = new DummyRequestLogger();
 const canonicalID = 'accessKey1';
@@ -47,6 +48,7 @@ describe('objectGet API', () => {
         namespace,
         headers: {},
         url: `/${bucketName}`,
+        actionImplicitDenies: false,
     };
     const userMetadataKey = 'x-amz-meta-test';
     const userMetadataValue = 'some metadata';
@@ -56,6 +58,7 @@ describe('objectGet API', () => {
         objectKey: objectName,
         headers: {},
         url: `/${bucketName}/${objectName}`,
+        actionImplicitDenies: false,
     };
 
     it('should get the object metadata', done => {
@@ -84,6 +87,7 @@ describe('objectGet API', () => {
             'x-amz-bucket-object-lock-enabled': 'true',
         },
         url: `/${bucketName}`,
+        actionImplicitDenies: false,
     };
 
     const createPutDummyRetention = (date, mode) => new DummyRequest({
@@ -245,6 +249,7 @@ describe('objectGet API', () => {
                 objectKey: objectName,
                 headers: { host: `${bucketName}.s3.amazonaws.com` },
                 url: `/${objectName}?uploads`,
+                actionImplicitDenies: false,
             };
             async.waterfall([
                 next => bucketPut(authInfo, testPutBucketRequest, log, next),
@@ -321,6 +326,7 @@ describe('objectGet API', () => {
                         headers: { host: `${bucketName}.s3.amazonaws.com` },
                         query: { uploadId: testUploadId },
                         post: completeBody,
+                        actionImplicitDenies: false,
                     };
                     completeMultipartUpload(authInfo, completeRequest,
                                             log, err => {
@@ -383,6 +389,129 @@ describe('objectGet API', () => {
                         done();
                     });
                 });
+        });
+    });
+
+    it('should return InvalidObjectState if trying to GET the object in cold storage', done => {
+        const testGetRequest = {
+            bucketName,
+            namespace,
+            objectKey: objectName,
+            headers: {},
+            url: `/${bucketName}/${objectName}`,
+        };
+        mdColdHelper.putBucketMock(bucketName, null, () => {
+            mdColdHelper.putObjectMock(bucketName, objectName, mdColdHelper.getArchiveArchivedMD(), () => {
+                objectGet(authInfo, testGetRequest, false, log, err => {
+                    assert.strictEqual(err.is.InvalidObjectState, true);
+                    done();
+                });
+            });
+        });
+    });
+
+    it('should return InvalidObjectState if trying to GET the object in cold storage being restored', done => {
+        const testGetRequest = {
+            bucketName,
+            namespace,
+            objectKey: objectName,
+            headers: {},
+            url: `/${bucketName}/${objectName}`,
+        };
+        mdColdHelper.putBucketMock(bucketName, null, () => {
+            mdColdHelper.putObjectMock(bucketName, objectName, mdColdHelper.getArchiveOngoingRequestMD(), () => {
+                objectGet(authInfo, testGetRequest, false, log, err => {
+                    assert.strictEqual(err.is.InvalidObjectState, true);
+                    done();
+                });
+            });
+        });
+    });
+
+    it('should GET a transitioning object', done => {
+        const testGetRequest = {
+            bucketName,
+            namespace,
+            objectKey: objectName,
+            headers: {},
+            url: `/${bucketName}/${objectName}`,
+        };
+        mdColdHelper.putBucketMock(bucketName, null, () => {
+            mdColdHelper.putObjectMock(bucketName, objectName, mdColdHelper.getTransitionInProgressMD(), () => {
+                objectGet(authInfo, testGetRequest, false, log, (err, res, headers) => {
+                    assert.ifError(err);
+                    assert.ok(res);
+                    assert.strictEqual(headers['x-amz-storage-class'], mdColdHelper.defaultLocation);
+                    done();
+                });
+            });
+        });
+    });
+
+    it('should not reflect the storage location in storage class if the bucket location is not cold', done => {
+        const testGetRequest = {
+            bucketName,
+            namespace,
+            objectKey: objectName,
+            headers: {},
+            url: `/${bucketName}/${objectName}`,
+        };
+        mdColdHelper.putBucketMock(bucketName, 'scality-internal-file', () => {
+            mdColdHelper.putObjectMock(bucketName, objectName, {}, () => {
+                objectGet(authInfo, testGetRequest, false, log, (err, res, headers) => {
+                    assert.ifError(err);
+                    assert.ok(res);
+                    assert.strictEqual(headers['x-amz-storage-class'], undefined);
+                    done();
+                });
+            });
+        });
+    });
+
+    it('should reflect the restore header with ongoing-request=true if the object is restored', done => {
+        const testGetRequest = {
+            bucketName,
+            namespace,
+            objectKey: objectName,
+            headers: {},
+            url: `/${bucketName}/${objectName}`,
+        };
+        mdColdHelper.putBucketMock(bucketName, null, () => {
+            const objectCustomMDFields = mdColdHelper.getArchiveRestoredMD();
+            mdColdHelper.putObjectMock(bucketName, objectName, objectCustomMDFields, () => {
+                objectGet(authInfo, testGetRequest, false, log, (err, res, headers) => {
+                    assert.ifError(err);
+                    assert.ok(res);
+                    assert.strictEqual(headers['x-amz-storage-class'], mdColdHelper.defaultLocation);
+                    const utcDate = new Date(objectCustomMDFields['x-amz-restore']['expiry-date']).toUTCString();
+                    assert.strictEqual(headers['x-amz-restore'], `ongoing-request="false", expiry-date="${utcDate}"`);
+                    done();
+                });
+            });
+        });
+    });
+
+    it('should reflect the restore header with ongoing-request=false and expiry-date set ' +
+        'if the object is restored and not yet expired', done => {
+        const testGetRequest = {
+            bucketName,
+            namespace,
+            objectKey: objectName,
+            headers: {},
+            url: `/${bucketName}/${objectName}`,
+        };
+        mdColdHelper.putBucketMock(bucketName, null, () => {
+            const objectCustomMDFields = mdColdHelper.getArchiveRestoredMD();
+            mdColdHelper.putObjectMock(bucketName, objectName, objectCustomMDFields, () => {
+                objectGet(authInfo, testGetRequest, false, log, (err, res, headers) => {
+                    assert.ifError(err);
+                    assert.ok(res);
+                    assert.strictEqual(headers['x-amz-storage-class'], mdColdHelper.defaultLocation);
+                    const utcDate = new Date(objectCustomMDFields['x-amz-restore']['expiry-date']).toUTCString();
+                    assert.strictEqual(headers['x-amz-restore'], `ongoing-request="false", expiry-date="${utcDate}"`);
+                    done();
+                });
+            });
         });
     });
 });

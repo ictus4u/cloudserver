@@ -25,6 +25,7 @@ const testBucketPutRequest = {
     bucketName,
     headers: { host: `${bucketName}.s3.amazonaws.com` },
     url: '/',
+    actionImplicitDenies: false,
 };
 
 const testPutObjectRequest = new DummyRequest({
@@ -68,7 +69,7 @@ describe('putObjectTagging API', () => {
 
     afterEach(cleanup);
 
-    it('should update an object\'s metadata with tags resource', done => {
+    it('should update an object\'s metadata with tags resource and update originOp', done => {
         const taggingUtil = new TaggingConfigTester();
         const testObjectPutTaggingRequest = taggingUtil
             .createObjectTaggingRequest('PUT', bucketName, objectName);
@@ -85,6 +86,7 @@ describe('putObjectTagging API', () => {
                 }
                 const uploadedTags = objectMD.tags;
                 assert.deepStrictEqual(uploadedTags, taggingUtil.getTags());
+                assert.strictEqual(objectMD.originOp, 's3:ObjectTagging:Put');
                 return done();
             });
         });
@@ -171,8 +173,7 @@ describe('PUT object tagging :: helper validation functions ', () => {
 
         taggingTests.forEach(taggingTest => {
             it(taggingTest.it, done => {
-                const key = taggingTest.tag.key;
-                const value = taggingTest.tag.value;
+                const { tag: { key, value } } = taggingTest;
                 const xml = _generateSampleXml(key, value);
                 parseTagXml(xml, log, (err, result) => {
                     if (taggingTest.error) {

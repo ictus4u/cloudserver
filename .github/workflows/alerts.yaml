@@ -1,0 +1,35 @@
+name: Test alerts
+
+on:
+  push:
+    branches-ignore:
+      - 'development/**'
+      - 'q/*/**'
+
+jobs:
+  run-alert-tests:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        tests:
+          - name: 1 minute interval tests
+            file: monitoring/alerts.test.yaml
+          
+          - name: 10 seconds interval tests
+            file: monitoring/alerts.10s.test.yaml
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Render and test ${{ matrix.tests.name }}
+        uses: scality/action-prom-render-test@1.0.3
+        with:
+          alert_file_path: monitoring/alerts.yaml
+          test_file_path: ${{ matrix.tests.file }}
+          alert_inputs: |
+            namespace=zenko
+            service=artesca-data-connector-s3api-metrics
+            reportJob=artesca-data-ops-report-handler
+            replicas=3
+          github_token: ${{ secrets.GITHUB_TOKEN }}

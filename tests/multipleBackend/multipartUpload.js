@@ -2,7 +2,7 @@ const assert = require('assert');
 const async = require('async');
 const AWS = require('aws-sdk');
 const { parseString } = require('xml2js');
-const { errors, models } = require('arsenal');
+const { models } = require('arsenal');
 
 const BucketInfo = models.BucketInfo;
 const { getRealAwsConfig } =
@@ -44,9 +44,16 @@ const namespace = 'default';
 const bucketName = 'bucketname';
 const mpuBucket = `${constants.mpuBucketPrefix}${bucketName}`;
 const awsBucket = config.locationConstraints[awsLocation].details.bucketName;
+const awsMismatchBucket = config.locationConstraints[awsLocationMismatch]
+                            .details.bucketName;
 const smallBody = Buffer.from('I am a body', 'utf8');
 const bigBody = Buffer.alloc(10485760);
 const locMetaHeader = 'scal-location-constraint';
+const isCEPH = (config.locationConstraints[awsLocation]
+                    .details.awsEndpoint !== undefined &&
+                config.locationConstraints[awsLocation]
+                    .details.awsEndpoint.indexOf('amazon') === -1);
+const itSkipCeph = isCEPH ? it.skip : it;
 const bucketPutRequest = {
     bucketName,
     namespace,
@@ -54,6 +61,7 @@ const bucketPutRequest = {
     url: '/',
     post: '',
     parsedHost: 'localhost',
+    actionImplicitDenies: false,
 };
 
 const awsETag = 'be747eb4b75517bf6b3cf7c5fbb62f3a';
@@ -73,6 +81,7 @@ const completeBody = '<CompleteMultipartUpload>' +
 const basicParams = {
     bucketName,
     namespace,
+    actionImplicitDenies: false,
 };
 
 function getObjectGetRequest(objectKey) {
@@ -130,7 +139,7 @@ function getAwsParams(objectKey) {
 }
 
 function getAwsParamsBucketNotMatch(objectKey) {
-    return { Bucket: awsBucket, Key: `${bucketName}/${objectKey}` };
+    return { Bucket: awsMismatchBucket, Key: `${bucketName}/${objectKey}` };
 }
 
 function assertMpuInitResults(initResult, key, cb) {
@@ -270,6 +279,7 @@ function mpuSetup(location, key, cb) {
             'x-amz-meta-scal-location-constraint': location },
         url: `/${key}?uploads`,
         parsedHost: 'localhost',
+        actionImplicitDenies: false,
     };
     initiateMultipartUpload(authInfo, initiateRequest, log,
     (err, result) => {
@@ -342,6 +352,7 @@ describe('Multipart Upload API with AWS Backend', function mpuTestSuite() {
                 'x-amz-meta-scal-location-constraint': `${awsLocation}` },
             url: `/${objectKey}?uploads`,
             parsedHost: 'localhost',
+            actionImplicitDenies: false,
         };
 
         initiateMultipartUpload(authInfo, initiateRequest, log,
@@ -365,6 +376,7 @@ describe('Multipart Upload API with AWS Backend', function mpuTestSuite() {
                 `${awsLocationMismatch}` },
             url: `/${objectKey}?uploads`,
             parsedHost: 'localhost',
+            actionImplicitDenies: false,
         };
 
         initiateMultipartUpload(authInfo, initiateRequest, log,
@@ -389,6 +401,7 @@ describe('Multipart Upload API with AWS Backend', function mpuTestSuite() {
             },
             url: `/${objectKey}?uploads`,
             parsedHost: 'localhost',
+            actionImplicitDenies: false,
         };
 
         initiateMultipartUpload(authInfo, initiateRequest, log,
@@ -460,11 +473,15 @@ describe('Multipart Upload API with AWS Backend', function mpuTestSuite() {
             abortMPU(uploadId, getAwsParams(objectKey), () => {
                 const listParams = getListParams(objectKey, uploadId);
                 listParts(authInfo, listParams, log, err => {
-                    assert.deepStrictEqual(err, errors.ServiceUnavailable
-                      .customizeDescription('Error returned from AWS: ' +
-                      'The specified upload does not exist. The upload ID ' +
-                      'may be invalid, or the upload may have been aborted ' +
-                      'or completed.'));
+                    let wantedDesc = 'Error returned from AWS: ' +
+                        'The specified upload does not exist. The upload ID ' +
+                        'may be invalid, or the upload may have been aborted' +
+                        ' or completed.';
+                    if (isCEPH) {
+                        wantedDesc = 'Error returned from AWS: null';
+                    }
+                    assert.strictEqual(err.is.ServiceUnavailable, true);
+                    assert.deepStrictEqual(err.description, wantedDesc);
                     done();
                 });
             });
@@ -482,7 +499,8 @@ describe('Multipart Upload API with AWS Backend', function mpuTestSuite() {
                     Key: objectKey,
                     UploadId: uploadId,
                 }, err => {
-                    assert.strictEqual(err.code, 'NoSuchUpload');
+                    const wantedError = isCEPH ? 'NoSuchKey' : 'NoSuchUpload';
+                    assert.strictEqual(err.code, wantedError);
                     done();
                 });
             });
@@ -501,7 +519,8 @@ describe('Multipart Upload API with AWS Backend', function mpuTestSuite() {
                     Key: `${bucketName}/${objectKey}`,
                     UploadId: uploadId,
                 }, err => {
-                    assert.strictEqual(err.code, 'NoSuchUpload');
+                    const wantedError = isCEPH ? 'NoSuchKey' : 'NoSuchUpload';
+                    assert.strictEqual(err.code, wantedError);
                     done();
                 });
             });
@@ -612,6 +631,7 @@ describe('Multipart Upload API with AWS Backend', function mpuTestSuite() {
                         'x-amz-meta-scal-location-constraint': awsLocation },
                     url: `/${objectKey}?uploads`,
                     parsedHost: 'localhost',
+                    actionImplicitDenies: false,
                 };
                 initiateMultipartUpload(authInfo, initiateRequest, log,
                 err => {
@@ -638,13 +658,13 @@ describe('Multipart Upload API with AWS Backend', function mpuTestSuite() {
             const compParams = getCompleteParams(objectKey, uploadId);
             compParams.post = errorBody;
             completeMultipartUpload(authInfo, compParams, log, err => {
-                assert.deepStrictEqual(err, errors.InvalidPart);
+                assert.strictEqual(err.is.InvalidPart, true);
                 done();
             });
         });
     });
-
-    it('should return invalidPartOrder error', done => {
+    // Ceph doesn't care about order
+    itSkipCeph('should return invalidPartOrder error', done => {
         const objectKey = `key-${Date.now()}`;
         mpuSetup(awsLocation, objectKey, uploadId => {
             const errorBody = '<CompleteMultipartUpload>' +
@@ -660,12 +680,11 @@ describe('Multipart Upload API with AWS Backend', function mpuTestSuite() {
             const compParams = getCompleteParams(objectKey, uploadId);
             compParams.post = errorBody;
             completeMultipartUpload(authInfo, compParams, log, err => {
-                assert.deepStrictEqual(err, errors.InvalidPartOrder);
+                assert.strictEqual(err.is.InvalidPartOrder, true);
                 done();
             });
         });
     });
-
     it('should return entityTooSmall error', done => {
         const objectKey = `key-${Date.now()}`;
         mpuSetup(awsLocation, objectKey, uploadId => {
@@ -674,6 +693,10 @@ describe('Multipart Upload API with AWS Backend', function mpuTestSuite() {
             objectPutPart(authInfo, partRequest3, undefined, log, err => {
                 assert.equal(err, null, `Error putting part: ${err}`);
                 const errorBody = '<CompleteMultipartUpload>' +
+                    '<Part>' +
+                    '<PartNumber>1</PartNumber>' +
+                    `<ETag>"${awsETagBigObj}"</ETag>` +
+                    '</Part>' +
                     '<Part>' +
                     '<PartNumber>2</PartNumber>' +
                     `<ETag>"${awsETag}"</ETag>` +
@@ -686,7 +709,7 @@ describe('Multipart Upload API with AWS Backend', function mpuTestSuite() {
                 const compParams = getCompleteParams(objectKey, uploadId);
                 compParams.post = errorBody;
                 completeMultipartUpload(authInfo, compParams, log, err => {
-                    assert.deepStrictEqual(err, errors.EntityTooSmall);
+                    assert.strictEqual(err.is.EntityTooSmall, true);
                     done();
                 });
             });
@@ -712,6 +735,7 @@ describe('Multipart Upload API with AWS Backend', function mpuTestSuite() {
                 headers: { host: '/' },
                 url: `/${bucketName}?uploads`,
                 query: {},
+                actionImplicitDenies: false,
             };
             listMultipartUploads(authInfo, listMpuParams, log,
             (err, mpuListXml) => {

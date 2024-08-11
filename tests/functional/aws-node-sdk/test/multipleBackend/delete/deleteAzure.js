@@ -4,7 +4,7 @@ const async = require('async');
 const BucketUtility = require('../../../lib/utility/bucket-util');
 const withV4 = require('../../support/withV4');
 const {
-    describeSkipIfNotMultiple,
+    describeSkipIfNotMultipleOrCeph,
     uniqName,
     getAzureClient,
     getAzureContainerName,
@@ -25,7 +25,7 @@ const nonExistingId = process.env.AWS_ON_AIR ?
     'MhhyTHhmZ4cxSi4Y9SMe5P7UJAz7HLJ9' :
     '3939393939393939393936493939393939393939756e6437';
 
-describeSkipIfNotMultiple('Multiple backend delete object from Azure',
+describeSkipIfNotMultipleOrCeph('Multiple backend delete object from Azure',
 function testSuite() {
     this.timeout(250000);
     withV4(sigCfg => {
@@ -78,13 +78,13 @@ function testSuite() {
                     }, err => {
                         assert.equal(err, null, 'Expected success ' +
                             `but got error ${err}`);
-                        setTimeout(() =>
-                        azureClient.getBlobProperties(azureContainerName,
-                        keyName, err => {
-                            assert.strictEqual(err.statusCode, 404);
-                            assert.strictEqual(err.code, 'NotFound');
-                            return done();
-                        }), azureTimeout);
+                        setTimeout(() => azureClient.getContainerClient(azureContainerName)
+                            .getProperties(keyName)
+                            .then(() => assert.fail('Expected error'), err => {
+                                assert.strictEqual(err.statusCode, 404);
+                                assert.strictEqual(err.code, 'NotFound');
+                                return done();
+                            }), azureTimeout);
                     });
                 });
             });
@@ -112,13 +112,13 @@ function testSuite() {
                     assert.equal(err, null, 'Expected success ' +
                         `but got error ${err}`);
                     setTimeout(() =>
-                    azureClient.getBlobProperties(azureContainerName,
-                    `${azureContainerName}/${this.test.azureObject}`,
-                    err => {
-                        assert.strictEqual(err.statusCode, 404);
-                        assert.strictEqual(err.code, 'NotFound');
-                        return done();
-                    }), azureTimeout);
+                    azureClient.getContainerClient(azureContainerName)
+                        .getProperties(`${azureContainerName}/${this.test.azureObject}`)
+                        .then(() => assert.fail('Expected error'), err => {
+                            assert.strictEqual(err.statusCode, 404);
+                            assert.strictEqual(err.code, 'NotFound');
+                            return done();
+                        }), azureTimeout);
                 });
             });
         });
@@ -135,13 +135,13 @@ function testSuite() {
                     },
                 }, err => {
                     assert.equal(err, null, 'Expected success but got ' +
-                    `error ${err}`);
-                    azureClient.deleteBlob(azureContainerName,
-                    this.currentTest.azureObject, err => {
-                        assert.equal(err, null, 'Expected success but got ' +
                         `error ${err}`);
-                        done(err);
-                    });
+                    azureClient.getContainerClient(azureContainerName)
+                        .deleteBlob(this.currentTest.azureObject).then(done, err => {
+                            assert.equal(err, null, 'Expected success but got ' +
+                                `error ${err}`);
+                            done(err);
+                        });
                 });
             });
 
@@ -188,12 +188,14 @@ function testSuite() {
                         assert.deepStrictEqual(res.Body, normalBody);
                         return next(err);
                     }),
-                    next => azureClient.getBlobToText(azureContainerName,
-                    this.test.azureObject, (err, res) => {
+                    next => azureClient.getContainerClient(azureContainerName)
+                    .getBlobClient(this.test.azureObject)
+                    .downloadToBuffer().then(res => {
+                        assert.deepStrictEqual(res, normalBody);
+                        return next();
+                    }, err => {
                         assert.equal(err, null, 'getBlobToText: Expected ' +
-                        `successbut got error ${err}`);
-                        assert.deepStrictEqual(Buffer.from(res, 'utf8'),
-                        normalBody);
+                            `successbut got error ${err}`);
                         return next();
                     }),
                 ], done);

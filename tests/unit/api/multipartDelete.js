@@ -1,11 +1,9 @@
 const assert = require('assert');
 const async = require('async');
 const { parseString } = require('xml2js');
-const sinon = require('sinon');
 
 const { cleanup, DummyRequestLogger } = require('../helpers');
 const { config } = require('../../../lib/Config');
-const services = require('../../../lib/services');
 const DummyRequest = require('../DummyRequest');
 const { bucketPut } = require('../../../lib/api/bucketPut');
 const initiateMultipartUpload
@@ -24,6 +22,7 @@ const bucketPutRequest = {
     namespace,
     headers: { host: `${bucketName}.s3.amazonaws.com` },
     url: '/',
+    actionImplicitDenies: false,
 };
 const objectKey = 'testObject';
 const initiateRequest = {
@@ -32,6 +31,7 @@ const initiateRequest = {
     objectKey,
     headers: { host: `${bucketName}.s3.amazonaws.com` },
     url: `/${objectKey}?uploads`,
+    actionImplicitDenies: false,
 };
 const eastLocation = 'us-east-1';
 const westLocation = 'scality-internal-file';
@@ -40,7 +40,6 @@ function _createAndAbortMpu(usEastSetting, fakeUploadID, locationConstraint,
     callback) {
     config.locationConstraints['us-east-1'].legacyAwsBehavior =
         usEastSetting;
-    let uploadId;
     const post = '<?xml version="1.0" encoding="UTF-8"?>' +
         '<CreateBucketConfiguration ' +
         'xmlns="http://s3.amazonaws.com/doc/2006-03-01/">' +
@@ -55,7 +54,7 @@ function _createAndAbortMpu(usEastSetting, fakeUploadID, locationConstraint,
         (json, next) => {
             // use uploadId parsed from initiateMpu request to construct
             // uploadPart and deleteMpu requests
-            uploadId =
+            const uploadId =
                 json.InitiateMultipartUploadResult.UploadId[0];
             const partBody = Buffer.from('I am a part\n', 'utf8');
             const partRequest = new DummyRequest({
@@ -68,6 +67,7 @@ function _createAndAbortMpu(usEastSetting, fakeUploadID, locationConstraint,
                     partNumber: '1',
                     uploadId,
                 },
+                actionImplicitDenies: false,
             }, partBody);
             const testUploadId = fakeUploadID ? 'nonexistinguploadid' :
                 uploadId;
@@ -78,6 +78,7 @@ function _createAndAbortMpu(usEastSetting, fakeUploadID, locationConstraint,
                 headers: { host: `${bucketName}.s3.amazonaws.com` },
                 url: `/${objectKey}?uploadId=${testUploadId}`,
                 query: { uploadId: testUploadId },
+                actionImplicitDenies: false,
             };
             next(null, partRequest, deleteMpuRequest);
         },
@@ -90,7 +91,7 @@ function _createAndAbortMpu(usEastSetting, fakeUploadID, locationConstraint,
             }),
         (deleteMpuRequest, next) =>
             multipartDelete(authInfo, deleteMpuRequest, log, next),
-    ], err => callback(err, uploadId));
+    ], callback);
 }
 
 describe('Multipart Delete API', () => {
@@ -133,17 +134,6 @@ describe('Multipart Delete API', () => {
     'if uploadId does not exist and legacyAwsBehavior set to false', done => {
         _createAndAbortMpu(false, true, eastLocation, err => {
             assert.strictEqual(err, null, `Expected no error, got ${err}`);
-            done();
-        });
-    });
-
-    it('should send a PUT to bucketd with `isAbort` and `replayId`', done => {
-        const spy = sinon.spy(services, 'sendAbortMPUPut');
-        _createAndAbortMpu(true, false, eastLocation, (err, uploadId) => {
-            assert.ifError(err);
-            assert.strictEqual(spy.calledOnce, true);
-            assert.strictEqual(
-                spy.calledOnceWith(bucketName, objectKey, uploadId), true);
             done();
         });
     });

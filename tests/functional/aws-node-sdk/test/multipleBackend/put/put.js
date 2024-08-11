@@ -9,8 +9,10 @@ const { createEncryptedBucketPromise } =
 const { versioningEnabled } = require('../../../lib/utility/versioning-util');
 
 const { describeSkipIfNotMultiple, getAwsRetry, awsLocation,
-    awsLocationEncryption, memLocation, fileLocation } = require('../utils');
-const bucket = 'buckettestmultiplebackendput';
+    awsLocationEncryption, memLocation, fileLocation, genUniqID, isCEPH }
+    = require('../utils');
+const Promise = require('bluebird');
+const bucket = `putaws${genUniqID()}`;
 const body = Buffer.from('I am a body', 'utf8');
 const bigBody = Buffer.alloc(10485760);
 const correctMD5 = 'be747eb4b75517bf6b3cf7c5fbb62f3a';
@@ -107,7 +109,7 @@ describe('MultipleBackend put object', function testSuite() {
         it.skip('should return an error to put request without a valid ' +
         'bucket name',
             done => {
-                const key = `somekey-${Date.now()}`;
+                const key = `somekey-${genUniqID()}`;
                 s3.putObject({ Bucket: '', Key: key }, err => {
                     assert.notEqual(err, null,
                         'Expected failure but got success');
@@ -124,7 +126,7 @@ describe('MultipleBackend put object', function testSuite() {
 
             it('should return an error to put request without a valid ' +
                 'location constraint', done => {
-                const key = `somekey-${Date.now()}`;
+                const key = `somekey-${genUniqID()}`;
                 const params = { Bucket: bucket, Key: key,
                     Body: body,
                     Metadata: { 'scal-location-constraint': 'fail-region' } };
@@ -137,7 +139,7 @@ describe('MultipleBackend put object', function testSuite() {
             });
 
             it('should put an object to mem', done => {
-                const key = `somekey-${Date.now()}`;
+                const key = `somekey-${genUniqID()}`;
                 const params = { Bucket: bucket, Key: key,
                     Body: body,
                     Metadata: { 'scal-location-constraint': memLocation },
@@ -155,7 +157,7 @@ describe('MultipleBackend put object', function testSuite() {
             });
 
             it('should put a 0-byte object to mem', done => {
-                const key = `somekey-${Date.now()}`;
+                const key = `somekey-${genUniqID()}`;
                 const params = { Bucket: bucket, Key: key,
                     Metadata: { 'scal-location-constraint': memLocation },
                 };
@@ -172,8 +174,68 @@ describe('MultipleBackend put object', function testSuite() {
                 });
             });
 
+            it('should put only metadata to mem with mdonly header', done => {
+                const key = `mdonly-${genUniqID()}`;
+                const b64 = Buffer.from(correctMD5, 'hex').toString('base64');
+                const params = { Bucket: bucket, Key: key,
+                    Metadata: { 'scal-location-constraint': awsLocation,
+                    'mdonly': 'true',
+                    'md5chksum': b64,
+                    'size': body.length.toString(),
+                    } };
+                s3.putObject(params, err => {
+                    assert.strictEqual(err, null, `Unexpected err: ${err}`);
+                    s3.headObject({ Bucket: bucket, Key: key },
+                    (err, res) => {
+                        assert.equal(err, null, 'Expected success, ' +
+                        `got error ${err}`);
+                        assert.strictEqual(res.ETag, `"${correctMD5}"`);
+                        getAwsError(key, 'NoSuchKey', () => done());
+                    });
+                });
+            });
+
+            it('should put actual object with body and mdonly header', done => {
+                const key = `mdonly-${genUniqID()}`;
+                const b64 = Buffer.from(correctMD5, 'hex').toString('base64');
+                const params = { Bucket: bucket, Key: key, Body: body,
+                    Metadata: { 'scal-location-constraint': awsLocation,
+                    'mdonly': 'true',
+                    'md5chksum': b64,
+                    'size': body.length.toString(),
+                    } };
+                s3.putObject(params, err => {
+                    assert.equal(err, null, 'Expected success, ' +
+                        `got error ${err}`);
+                    s3.getObject({ Bucket: bucket, Key: key }, (err, res) => {
+                        assert.strictEqual(err, null, 'Expected success, ' +
+                        `got error ${err}`);
+                        assert.strictEqual(res.ETag, `"${correctMD5}"`);
+                        awsGetCheck(key, correctMD5, correctMD5, awsLocation,
+                            () => done());
+                    });
+                });
+            });
+
+            it('should put 0-byte normally with mdonly header', done => {
+                const key = `mdonly-${genUniqID()}`;
+                const b64 = Buffer.from(emptyMD5, 'hex').toString('base64');
+                const params = { Bucket: bucket, Key: key,
+                    Metadata: { 'scal-location-constraint': awsLocation,
+                    'mdonly': 'true',
+                    'md5chksum': b64,
+                    'size': '0',
+                    } };
+                s3.putObject(params, err => {
+                    assert.equal(err, null, 'Expected success, ' +
+                    `got error ${err}`);
+                    awsGetCheck(key, emptyMD5, emptyMD5, awsLocation,
+                        () => done());
+                });
+            });
+
             it('should put a 0-byte object to AWS', done => {
-                const key = `somekey-${Date.now()}`;
+                const key = `somekey-${genUniqID()}`;
                 const params = { Bucket: bucket, Key: key,
                     Metadata: { 'scal-location-constraint': awsLocation },
                 };
@@ -186,7 +248,7 @@ describe('MultipleBackend put object', function testSuite() {
             });
 
             it('should put an object to file', done => {
-                const key = `somekey-${Date.now()}`;
+                const key = `somekey-${genUniqID()}`;
                 const params = { Bucket: bucket, Key: key,
                     Body: body,
                     Metadata: { 'scal-location-constraint': fileLocation },
@@ -204,7 +266,7 @@ describe('MultipleBackend put object', function testSuite() {
             });
 
             it('should put an object to AWS', done => {
-                const key = `somekey-${Date.now()}`;
+                const key = `somekey-${genUniqID()}`;
                 const params = { Bucket: bucket, Key: key,
                     Body: body,
                     Metadata: { 'scal-location-constraint': awsLocation } };
@@ -219,7 +281,7 @@ describe('MultipleBackend put object', function testSuite() {
             it('should encrypt body only if bucket encrypted putting ' +
             'object to AWS',
             done => {
-                const key = `somekey-${Date.now()}`;
+                const key = `somekey-${genUniqID()}`;
                 const params = { Bucket: bucket, Key: key,
                     Body: body,
                     Metadata: { 'scal-location-constraint': awsLocation } };
@@ -231,8 +293,13 @@ describe('MultipleBackend put object', function testSuite() {
                 });
             });
 
+
             it('should put an object to AWS with encryption', done => {
-                const key = `somekey-${Date.now()}`;
+                // Test refuses to skip using itSkipCeph so just mark it passed
+                if (isCEPH) {
+                    return done();
+                }
+                const key = `somekey-${genUniqID()}`;
                 const params = { Bucket: bucket, Key: key,
                     Body: body,
                     Metadata: { 'scal-location-constraint':
@@ -247,7 +314,7 @@ describe('MultipleBackend put object', function testSuite() {
 
             it('should return a version id putting object to ' +
             'to AWS with versioning enabled', done => {
-                const key = `somekey-${Date.now()}`;
+                const key = `somekey-${genUniqID()}`;
                 const params = { Bucket: bucket, Key: key, Body: body,
                     Metadata: { 'scal-location-constraint': awsLocation } };
                 async.waterfall([
@@ -267,7 +334,7 @@ describe('MultipleBackend put object', function testSuite() {
             });
 
             it('should put a large object to AWS', done => {
-                const key = `somekey-${Date.now()}`;
+                const key = `somekey-${genUniqID()}`;
                 const params = { Bucket: bucket, Key: key,
                     Body: bigBody,
                     Metadata: { 'scal-location-constraint': awsLocation } };
@@ -281,7 +348,7 @@ describe('MultipleBackend put object', function testSuite() {
 
             it('should put objects with same key to AWS ' +
             'then file, and object should only be present in file', done => {
-                const key = `somekey-${Date.now()}`;
+                const key = `somekey-${genUniqID()}`;
                 const params = { Bucket: bucket, Key: key,
                     Body: body,
                     Metadata: { 'scal-location-constraint': awsLocation } };
@@ -308,7 +375,7 @@ describe('MultipleBackend put object', function testSuite() {
 
             it('should put objects with same key to file ' +
             'then AWS, and object should only be present on AWS', done => {
-                const key = `somekey-${Date.now()}`;
+                const key = `somekey-${genUniqID()}`;
                 const params = { Bucket: bucket, Key: key,
                     Body: body,
                     Metadata: { 'scal-location-constraint': fileLocation } };
@@ -328,7 +395,7 @@ describe('MultipleBackend put object', function testSuite() {
 
             it('should put two objects to AWS with same ' +
             'key, and newest object should be returned', done => {
-                const key = `somekey-${Date.now()}`;
+                const key = `somekey-${genUniqID()}`;
                 const params = { Bucket: bucket, Key: key,
                     Body: body,
                     Metadata: { 'scal-location-constraint': awsLocation,
@@ -385,7 +452,7 @@ describeSkipIfNotMultiple('MultipleBackend put object based on bucket location',
             }, err => {
                 assert.equal(err, null, `Error creating bucket: ${err}`);
                 process.stdout.write('Putting object\n');
-                const key = `somekey-${Date.now()}`;
+                const key = `somekey-${genUniqID()}`;
                 const params = { Bucket: bucket, Key: key, Body: body };
                 return s3.putObject(params, err => {
                     assert.equal(err, null, 'Expected success, ' +
@@ -409,7 +476,7 @@ describeSkipIfNotMultiple('MultipleBackend put object based on bucket location',
             }, err => {
                 assert.equal(err, null, `Error creating bucket: ${err}`);
                 process.stdout.write('Putting object\n');
-                const key = `somekey-${Date.now()}`;
+                const key = `somekey-${genUniqID()}`;
                 const params = { Bucket: bucket, Key: key, Body: body };
                 return s3.putObject(params, err => {
                     assert.equal(err, null, 'Expected success, ' +
@@ -433,7 +500,7 @@ describeSkipIfNotMultiple('MultipleBackend put object based on bucket location',
             }, err => {
                 assert.equal(err, null, `Error creating bucket: ${err}`);
                 process.stdout.write('Putting object\n');
-                const key = `somekey-${Date.now()}`;
+                const key = `somekey-${genUniqID()}`;
                 const params = { Bucket: bucket, Key: key, Body: body };
                 return s3.putObject(params, err => {
                     assert.equal(err, null,
@@ -473,7 +540,7 @@ describe('MultipleBackend put based on request endpoint', () => {
             });
             request.send(err => {
                 assert.strictEqual(err, null, `Error creating bucket: ${err}`);
-                const key = `somekey-${Date.now()}`;
+                const key = `somekey-${genUniqID()}`;
                 s3.putObject({ Bucket: bucket, Key: key, Body: body }, err => {
                     assert.strictEqual(err, null, 'Expected succes, ' +
                         `got error ${JSON.stringify(err)}`);

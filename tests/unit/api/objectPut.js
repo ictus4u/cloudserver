@@ -1,7 +1,8 @@
 const assert = require('assert');
 const async = require('async');
 const moment = require('moment');
-const { errors, s3middleware } = require('arsenal');
+const { s3middleware, storage } = require('arsenal');
+const sinon = require('sinon');
 
 const { bucketPut } = require('../../../lib/api/bucketPut');
 const bucketPutObjectLock = require('../../../lib/api/bucketPutObjectLock');
@@ -10,11 +11,17 @@ const bucketPutVersioning = require('../../../lib/api/bucketPutVersioning');
 const { parseTagFromQuery } = s3middleware.tagging;
 const { cleanup, DummyRequestLogger, makeAuthInfo, versioningTestUtils }
     = require('../helpers');
-const { ds } = require('arsenal').storage.data.inMemory.datastore;
 const metadata = require('../metadataswitch');
 const objectPut = require('../../../lib/api/objectPut');
 const { objectLockTestUtils } = require('../helpers');
 const DummyRequest = require('../DummyRequest');
+const { maximumAllowedUploadSize } = require('../../../constants');
+const mpuUtils = require('../utils/mpuUtils');
+const { lastModifiedHeader } = require('../../../constants');
+
+const { ds } = storage.data.inMemory.datastore;
+
+const any = sinon.match.any;
 
 const log = new DummyRequestLogger();
 const canonicalID = 'accessKey1';
@@ -97,6 +104,7 @@ describe('parseTagFromQuery', () => {
 describe('objectPut API', () => {
     beforeEach(() => {
         cleanup();
+        sinon.spy(metadata, 'putObjectMD');
         testPutObjectRequest = new DummyRequest({
             bucketName,
             namespace,
@@ -106,13 +114,14 @@ describe('objectPut API', () => {
         }, postBody);
     });
 
-    after(() => {
+    afterEach(() => {
+        sinon.restore();
         metadata.putObjectMD = originalputObjectMD;
     });
 
     it('should return an error if the bucket does not exist', done => {
         objectPut(authInfo, testPutObjectRequest, undefined, log, err => {
-            assert.deepStrictEqual(err, errors.NoSuchBucket);
+            assert.strictEqual(err.is.NoSuchBucket, true);
             done();
         });
     });
@@ -123,10 +132,21 @@ describe('objectPut API', () => {
             log, () => {
                 objectPut(authInfo, testPutObjectRequest,
                     undefined, log, err => {
-                        assert.deepStrictEqual(err, errors.AccessDenied);
+                        assert.strictEqual(err.is.AccessDenied, true);
                         done();
                     });
             });
+    });
+
+    it('should return error if the upload size exceeds the ' +
+    'maximum allowed upload size for a single PUT request', done => {
+        testPutObjectRequest.parsedContentLength = maximumAllowedUploadSize + 1;
+        bucketPut(authInfo, testPutBucketRequest, log, () => {
+            objectPut(authInfo, testPutObjectRequest, undefined, log, err => {
+                assert.strictEqual(err.is.EntityTooLarge, true);
+                done();
+            });
+        });
     });
 
     it('should put object if user has FULL_CONTROL grant on bucket', done => {
@@ -365,6 +385,80 @@ describe('objectPut API', () => {
         });
     });
 
+    it('If testingMode=true and the last-modified header is given, should set last-modified accordingly', done => {
+        const imposedLastModified = '2024-07-19';
+        const testPutObjectRequest = new DummyRequest({
+            bucketName,
+            namespace,
+            objectKey: objectName,
+            headers: {
+                [lastModifiedHeader]: imposedLastModified,
+            },
+            url: `/${bucketName}/${objectName}`,
+            calculatedHash: 'vnR+tLdVF79rPPfF+7YvOg==',
+        }, postBody);
+
+        bucketPut(authInfo, testPutBucketRequest, log, () => {
+            const config = require('../../../lib/Config');
+            config.config.testingMode = true;
+            objectPut(authInfo, testPutObjectRequest, undefined, log,
+                (err, resHeaders) => {
+                    assert.strictEqual(resHeaders.ETag, `"${correctMD5}"`);
+                    metadata.getObjectMD(bucketName, objectName, {}, log,
+                        (err, md) => {
+                            assert(md);
+
+                            const lastModified = md['last-modified'];
+                            const lastModifiedDate = lastModified.split('T')[0];
+                            // last-modified date should be the one set by the last-modified header
+                            assert.strictEqual(lastModifiedDate, imposedLastModified);
+
+                            // The header should be removed after being treated.
+                            assert(md[lastModifiedHeader] === undefined);
+
+                            config.config.testingMode = false;
+                            done();
+                        });
+                });
+        });
+    });
+
+    it('should not take into acccount the last-modified header when testingMode=false', done => {
+        const imposedLastModified = '2024-07-19';
+
+        const testPutObjectRequest = new DummyRequest({
+            bucketName,
+            namespace,
+            objectKey: objectName,
+            headers: {
+                'x-amz-meta-x-scal-last-modified': imposedLastModified,
+            },
+            url: `/${bucketName}/${objectName}`,
+            calculatedHash: 'vnR+tLdVF79rPPfF+7YvOg==',
+        }, postBody);
+
+        bucketPut(authInfo, testPutBucketRequest, log, () => {
+            const config = require('../../../lib/Config');
+            config.config.testingMode = false;
+            objectPut(authInfo, testPutObjectRequest, undefined, log,
+                (err, resHeaders) => {
+                    assert.strictEqual(resHeaders.ETag, `"${correctMD5}"`);
+                    metadata.getObjectMD(bucketName, objectName, {}, log,
+                        (err, md) => {
+                            assert(md);
+                            assert.strictEqual(md['x-amz-meta-x-scal-last-modified'],
+                                        imposedLastModified);
+                            const lastModified = md['last-modified'];
+                            const lastModifiedDate = lastModified.split('T')[0];
+                            const currentTs = new Date().toJSON();
+                            const currentDate = currentTs.split('T')[0];
+                            assert.strictEqual(lastModifiedDate, currentDate);
+                            done();
+                        });
+                });
+        });
+    });
+
     it('should put an object with user metadata but no data', done => {
         const postBody = '';
         const correctMD5 = 'd41d8cd98f00b204e9800998ecf8427e';
@@ -435,6 +529,20 @@ describe('objectPut API', () => {
         });
     });
 
+    it('should not leave orphans in data when overwriting an multipart upload object', done => {
+        bucketPut(authInfo, testPutBucketRequest, log, () => {
+            mpuUtils.createMPU(namespace, bucketName, objectName, log,
+                (err, testUploadId) => {
+                    objectPut(authInfo, testPutObjectRequest, undefined, log, err => {
+                        assert.ifError(err);
+                        sinon.assert.calledWith(metadata.putObjectMD,
+                            any, any, any, sinon.match({ oldReplayId: testUploadId }), any, any);
+                        done();
+                    });
+                });
+        });
+    });
+
     it('should not put object with retention configuration if object lock ' +
         'is not enabled on the bucket', done => {
         const testPutObjectRequest = new DummyRequest({
@@ -451,9 +559,8 @@ describe('objectPut API', () => {
 
         bucketPut(authInfo, testPutBucketRequest, log, () => {
             objectPut(authInfo, testPutObjectRequest, undefined, log, err => {
-                assert.deepStrictEqual(err, errors.InvalidRequest
-                    .customizeDescription(
-                        'Bucket is missing ObjectLockConfiguration'));
+                assert.strictEqual(err.is.InvalidRequest, true);
+                assert.strictEqual(err.description, 'Bucket is missing ObjectLockConfiguration');
                 done();
             });
         });
@@ -481,6 +588,82 @@ describe('objectPut API', () => {
                 err => {
                     assert.strictEqual(err.code, 502);
                 });
+        });
+    });
+
+    it('should not put object with storage-class header not equal to STANDARD', done => {
+        const testPutObjectRequest = new DummyRequest({
+            bucketName,
+            namespace,
+            objectKey: objectName,
+            headers: {
+                'x-amz-storage-class': 'COLD',
+            },
+            url: `/${bucketName}/${objectName}`,
+            calculatedHash: 'vnR+tLdVF79rPPfF+7YvOg==',
+        }, postBody);
+
+        bucketPut(authInfo, testPutBucketRequest, log, () => {
+            objectPut(authInfo, testPutObjectRequest, undefined, log,
+                err => {
+                    assert.strictEqual(err.is.InvalidStorageClass, true);
+                    done();
+                });
+        });
+    });
+
+    it('should pass overheadField to metadata.putObjectMD for a non-versioned request', done => {
+        const testPutObjectRequest = new DummyRequest({
+            bucketName,
+            namespace,
+            objectKey: objectName,
+            headers: {},
+            url: `/${bucketName}/${objectName}`,
+            contentMD5: correctMD5,
+        }, postBody);
+
+        bucketPut(authInfo, testPutBucketRequest, log, () => {
+            objectPut(authInfo, testPutObjectRequest, undefined, log,
+                err => {
+                    assert.ifError(err);
+                    sinon.assert.calledWith(metadata.putObjectMD.lastCall,
+                        bucketName, objectName, any, sinon.match({ overheadField: sinon.match.array }), any, any);
+                    done();
+                });
+        });
+    });
+
+    it('should pass overheadField to metadata.putObjectMD for a versioned request', done => {
+        const testPutObjectRequest = versioningTestUtils
+            .createPutObjectRequest(bucketName, objectName, Buffer.from('I am another body', 'utf8'));
+        bucketPut(authInfo, testPutBucketRequest, log, () => {
+            bucketPutVersioning(authInfo, enableVersioningRequest, log, () => {
+                objectPut(authInfo, testPutObjectRequest, undefined, log,
+                    err => {
+                        assert.ifError(err);
+                        sinon.assert.calledWith(metadata.putObjectMD.lastCall,
+                            bucketName, objectName, any, sinon.match({ overheadField: sinon.match.array }), any, any);
+                        done();
+                    }
+                );
+            });
+        });
+    });
+
+    it('should pass overheadField to metadata.putObjectMD for a version-suspended request', done => {
+        const testPutObjectRequest = versioningTestUtils
+            .createPutObjectRequest(bucketName, objectName, Buffer.from('I am another body', 'utf8'));
+        bucketPut(authInfo, testPutBucketRequest, log, () => {
+            bucketPutVersioning(authInfo, suspendVersioningRequest, log, () => {
+                objectPut(authInfo, testPutObjectRequest, undefined, log,
+                    err => {
+                        assert.ifError(err);
+                        sinon.assert.calledWith(metadata.putObjectMD.lastCall,
+                            bucketName, objectName, any, sinon.match({ overheadField: sinon.match.array }), any, any);
+                        done();
+                    }
+                );
+            });
         });
     });
 });
@@ -592,7 +775,7 @@ describe('objectPut API with versioning', () => {
         bucketPut(authInfo, testPutBucketRequest, log, () => {
             objectPut(authInfo, testPutObjectRequest, undefined, log,
             err => {
-                assert.deepStrictEqual(err, errors.BadDigest);
+                assert.strictEqual(err.is.BadDigest, true);
                 // orphan objects don't get deleted
                 // until the next tick
                 // in memory

@@ -7,6 +7,7 @@ const withV4 = require('../support/withV4');
 const BucketUtility = require('../../lib/utility/bucket-util');
 const { createEncryptedBucketPromise } =
     require('../../lib/utility/createEncryptedBucket');
+const { fakeMetadataTransition, fakeMetadataArchive } = require('../utils/init');
 
 const sourceBucketName = 'supersourcebucket81033016532';
 const sourceObjName = 'supersourceobject';
@@ -577,6 +578,72 @@ describe('Object Part Copy', () => {
                     checkNoError(err);
                 });
             });
+
+            it('should not corrupt object if overwriting an existing part by copying a part ' +
+            'while the MPU is being completed', () => {
+                // AWS response etag for this completed MPU
+                const finalObjETag = '"db77ebbae9e9f5a244a26b86193ad818-1"';
+                process.stdout.write('Putting first part in MPU test');
+                return s3.uploadPartCopy({ Bucket: destBucketName,
+                    Key: destObjName,
+                    CopySource: `${sourceBucketName}/${sourceObjName}`,
+                    PartNumber: 1,
+                    UploadId: uploadId,
+                }).promise().then(res => {
+                    assert.strictEqual(res.ETag, etag);
+                    assert(res.LastModified);
+                }).then(() => {
+                    process.stdout.write('Overwriting first part in MPU test and completing MPU ' +
+                                         'at the same time');
+                    return Promise.all([
+                        s3.uploadPartCopy({
+                            Bucket: destBucketName,
+                            Key: destObjName,
+                            CopySource: `${sourceBucketName}/${sourceObjName}`,
+                            PartNumber: 1,
+                            UploadId: uploadId,
+                        }).promise().catch(err => {
+                            // in case the CompleteMPU finished
+                            // earlier, we may get a NoSuchKey error,
+                            // so just ignore it and resolve with a
+                            // special value, otherwise re-throw the
+                            // error
+                            if (err && err.code === 'NoSuchKey') {
+                                return Promise.resolve(null);
+                            }
+                            throw err;
+                        }),
+                        s3.completeMultipartUpload({
+                            Bucket: destBucketName,
+                            Key: destObjName,
+                            UploadId: uploadId,
+                            MultipartUpload: {
+                                Parts: [
+                                    { ETag: etag, PartNumber: 1 },
+                                ],
+                            },
+                        }).promise(),
+                    ]);
+                }).then(([uploadRes, completeRes]) => {
+                    // if upload succeeded before CompleteMPU finished
+                    if (uploadRes !== null) {
+                        assert.strictEqual(uploadRes.ETag, etag);
+                        assert(uploadRes.LastModified);
+                    }
+                    assert.strictEqual(completeRes.Bucket, destBucketName);
+                    assert.strictEqual(completeRes.Key, destObjName);
+                    assert.strictEqual(completeRes.ETag, finalObjETag);
+                }).then(() => {
+                    process.stdout.write('Getting object put by MPU with ' +
+                    'overwrite part');
+                    return s3.getObject({
+                        Bucket: destBucketName,
+                        Key: destObjName,
+                    }).promise();
+                }).then(res => {
+                    assert.strictEqual(res.ETag, finalObjETag);
+                });
+            });
         });
 
         it('should return an error if no such upload initiated',
@@ -643,6 +710,72 @@ describe('Object Part Copy', () => {
                     done();
                 });
             });
+
+        it('should not copy a part of a cold object', done => {
+            const archive = {
+                archiveInfo: {
+                    archiveId: '97a71dfe-49c1-4cca-840a-69199e0b0322',
+                    archiveVersion: 5577006791947779
+                },
+            };
+            fakeMetadataArchive(sourceBucketName, sourceObjName, undefined, archive, err => {
+                assert.ifError(err);
+                s3.uploadPartCopy({
+                    Bucket: destBucketName,
+                    Key: destObjName,
+                    CopySource: `${sourceBucketName}/${sourceObjName}`,
+                    PartNumber: 1,
+                    UploadId: uploadId,
+                }, err => {
+                        assert.strictEqual(err.code, 'InvalidObjectState');
+                        assert.strictEqual(err.statusCode, 403);
+                        done();
+                    });
+            });
+        });
+
+        it('should copy a part of an object when it\'s transitioning to cold', done => {
+            fakeMetadataTransition(sourceBucketName, sourceObjName, undefined, err => {
+                assert.ifError(err);
+                s3.uploadPartCopy({
+                    Bucket: destBucketName,
+                    Key: destObjName,
+                    CopySource: `${sourceBucketName}/${sourceObjName}`,
+                    PartNumber: 1,
+                    UploadId: uploadId,
+                }, (err, res) => {
+                    checkNoError(err);
+                    assert.strictEqual(res.ETag, etag);
+                    assert(res.LastModified);
+                    done();
+                });
+            });
+        });
+
+        it('should copy a part of a restored object', done => {
+            const archiveCompleted = {
+                archiveInfo: {},
+                restoreRequestedAt: new Date(0),
+                restoreRequestedDays: 5,
+                restoreCompletedAt: new Date(10),
+                restoreWillExpireAt: new Date(10 + (5 * 24 * 60 * 60 * 1000)),
+            };
+            fakeMetadataArchive(sourceBucketName, sourceObjName, undefined, archiveCompleted, err => {
+                assert.ifError(err);
+                s3.uploadPartCopy({
+                    Bucket: destBucketName,
+                    Key: destObjName,
+                    CopySource: `${sourceBucketName}/${sourceObjName}`,
+                    PartNumber: 1,
+                    UploadId: uploadId,
+                }, (err, res) => {
+                    checkNoError(err);
+                    assert.strictEqual(res.ETag, etag);
+                    assert(res.LastModified);
+                    done();
+                });
+            });
+        });
 
         describe('copying parts by another account', () => {
             const otherAccountBucket = 'otheraccountbucket42342342342';

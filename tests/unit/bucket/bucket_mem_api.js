@@ -1,7 +1,6 @@
 const assert = require('assert');
 const async = require('async');
-
-const { errors, storage } = require('arsenal');
+const { storage } = require('arsenal');
 
 const BucketInfo = require('arsenal').models.BucketInfo;
 const { cleanup, DummyRequestLogger } = require('../helpers');
@@ -38,7 +37,7 @@ describe('bucket API for getting, putting and deleting ' +
     it('should return an error in response ' +
        'to getObjectMD when no such key', done => {
         metadata.getObjectMD(bucketName, 'notThere', {}, log, (err, value) => {
-            assert.deepStrictEqual(err, errors.NoSuchKey);
+            assert.strictEqual(err.is.NoSuchKey, true);
             assert.strictEqual(value, undefined);
             done();
         });
@@ -51,7 +50,7 @@ describe('bucket API for getting, putting and deleting ' +
             () => {
                 metadata.getObjectMD(bucketName, 'objectToDelete', {}, log,
                     (err, value) => {
-                        assert.deepStrictEqual(err, errors.NoSuchKey);
+                        assert.strictEqual(err.is.NoSuchKey, true);
                         assert.strictEqual(value, undefined);
                         done();
                     });

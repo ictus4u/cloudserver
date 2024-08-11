@@ -1,4 +1,5 @@
 const assert = require('assert');
+const async = require('async');
 
 const withV4 = require('../support/withV4');
 const BucketUtility = require('../../lib/utility/bucket-util');
@@ -6,9 +7,15 @@ const BucketUtility = require('../../lib/utility/bucket-util');
 const {
     removeAllVersions,
     versioningEnabled,
+    versioningSuspended,
 } = require('../../lib/utility/versioning-util.js');
 
 const key = 'objectKey';
+// formats differ for AWS and S3, use respective sample ids to obtain
+// correct error response in tests
+const nonExistingId = process.env.AWS_ON_AIR ?
+    'MhhyTHhmZ4cxSi4Y9SMe5P7UJAz7HLJ9' :
+    '3939393939393939393936493939393939393939756e6437';
 
 function _assertNoError(err, desc) {
     assert.ifError(err, `Unexpected err ${desc}: ${err}`);
@@ -22,7 +29,7 @@ function _assertError(err, statusCode, code) {
 }
 
 
-describe('get behavior after delete with versioning', () => {
+describe('get behavior on versioning-enabled bucket', () => {
     withV4(sigCfg => {
         const bucketUtil = new BucketUtility('default', sigCfg);
         const s3 = bucketUtil.s3;
@@ -46,6 +53,76 @@ describe('get behavior after delete with versioning', () => {
             });
         });
 
+        describe('behavior when only version put is a regular version', () => {
+            beforeEach(function beforeEachF(done) {
+                s3.putObject({ Bucket: bucket, Key: key }, (err, data) => {
+                    _assertNoError(err, 'putObject');
+                    this.currentTest.versionId = data.VersionId;
+                    done();
+                });
+            });
+
+            it('should be able to get the object version', function itF(done) {
+                s3.getObject({
+                    Bucket: bucket,
+                    Key: key,
+                    VersionId: this.test.versionId,
+                }, (err, data) => {
+                    assert.ifError(err);
+                    assert.strictEqual(data.ContentLength, 0);
+                    done();
+                });
+            });
+
+            it('it should return NoSuchVersion if try to get a non-existing object version', done => {
+                s3.getObject({
+                    Bucket: bucket,
+                    Key: key,
+                    VersionId: nonExistingId,
+                },
+                err => {
+                    _assertError(err, 404, 'NoSuchVersion');
+                    done();
+                });
+            });
+
+            it('it should return NoSuchVersion if try to get a non-existing null version', done => {
+                s3.getObject({
+                    Bucket: bucket,
+                    Key: key,
+                    VersionId: 'null',
+                },
+                err => {
+                    _assertError(err, 404, 'NoSuchVersion');
+                    done();
+                });
+            });
+
+            it('it should return NoSuchVersion if try to get a deleted noncurrent null version', done => {
+                async.series([
+                    next => s3.putBucketVersioning({
+                        Bucket: bucket,
+                        VersioningConfiguration: versioningSuspended,
+                    }, next),
+                    next => s3.putObject({ Bucket: bucket, Key: key }, next),
+                    next => s3.putBucketVersioning({
+                        Bucket: bucket,
+                        VersioningConfiguration: versioningEnabled,
+                    }, next),
+                    next => s3.putObject({ Bucket: bucket, Key: key }, next),
+                    next => s3.deleteObject({ Bucket: bucket, Key: key, VersionId: 'null' }, next),
+                    next => s3.getObject({
+                        Bucket: bucket,
+                        Key: key,
+                        VersionId: 'null',
+                    }, err => {
+                        _assertError(err, 404, 'NoSuchVersion');
+                        next();
+                    }),
+                ], done);
+            });
+        });
+
         describe('behavior when only version put is a delete marker', () => {
             beforeEach(function beforeEachF(done) {
                 s3.deleteObject({ Bucket: bucket, Key: key },
@@ -60,9 +137,11 @@ describe('get behavior after delete with versioning', () => {
                 s3.getObject({
                     Bucket: bucket,
                     Key: key,
-                    VersionId: this.test.deleteVersionId },
-                err => {
+                    VersionId: this.test.deleteVersionId,
+                }, function test1(err) {
                     _assertError(err, 405, 'MethodNotAllowed');
+                    const headers = this.httpResponse.headers;
+                    assert.strictEqual(headers['x-amz-delete-marker'], 'true');
                     done();
                 });
             });
@@ -71,9 +150,11 @@ describe('get behavior after delete with versioning', () => {
             'latest version is a delete marker', done => {
                 s3.getObject({
                     Bucket: bucket,
-                    Key: key },
-                err => {
+                    Key: key,
+                }, function test2(err) {
                     _assertError(err, 404, 'NoSuchKey');
+                    const headers = this.httpResponse.headers;
+                    assert.strictEqual(headers['x-amz-delete-marker'], 'true');
                     done();
                 });
             });
@@ -98,9 +179,11 @@ describe('get behavior after delete with versioning', () => {
                 s3.getObject({
                     Bucket: bucket,
                     Key: key,
-                    VersionId: this.test.deleteVersionId },
-                err => {
+                    VersionId: this.test.deleteVersionId,
+                }, function test3(err) {
                     _assertError(err, 405, 'MethodNotAllowed');
+                    const headers = this.httpResponse.headers;
+                    assert.strictEqual(headers['x-amz-delete-marker'], 'true');
                     done();
                 });
             });
@@ -123,9 +206,11 @@ describe('get behavior after delete with versioning', () => {
             done => {
                 s3.getObject({
                     Bucket: bucket,
-                    Key: key },
-                err => {
+                    Key: key,
+                }, function test4(err) {
                     _assertError(err, 404, 'NoSuchKey');
+                    const headers = this.httpResponse.headers;
+                    assert.strictEqual(headers['x-amz-delete-marker'], 'true');
                     done();
                 });
             });

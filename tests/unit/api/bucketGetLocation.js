@@ -16,6 +16,7 @@ const testBucketPutRequest = {
     bucketName,
     headers: { host: `${bucketName}.s3.amazonaws.com` },
     url: '/',
+    actionImplicitDenies: false,
 };
 
 const testGetLocationRequest = {
@@ -25,6 +26,7 @@ const testGetLocationRequest = {
     },
     url: '/?location',
     query: { location: '' },
+    actionImplicitDenies: false,
 };
 
 const locationConstraints = config.locationConstraints;
@@ -43,6 +45,10 @@ describe('getBucketLocation API', () => {
         if (location === 'us-east-1') {
             // if region us-east-1 should return empty string
             // see next test.
+            return;
+        }
+        if (location === 'location-dmf-v1') {
+            // if region location-dmf-v1 should return InvalidLocationConstraint error
             return;
         }
         const bucketPutRequest = getBucketRequestObject(location);

@@ -228,7 +228,7 @@ describe('GET object', () => {
             });
 
         describe('Additional headers: [Cache-Control, Content-Disposition, ' +
-            'Content-Encoding, Expires]', () => {
+            'Content-Encoding, Expires, Accept-Ranges]', () => {
             describe('if specified in put object request', () => {
                 before(done => {
                     const params = {
@@ -259,6 +259,7 @@ describe('GET object', () => {
                           assert.strictEqual(res.ContentType, contentType);
                           assert.strictEqual(res.Expires.toGMTString(),
                             new Date(expires).toGMTString());
+                          assert.strictEqual(res.AcceptRanges, 'bytes');
                           return done();
                       });
                 });
@@ -1055,7 +1056,10 @@ describe('GET object', () => {
     });
 });
 
-describe('GET object with object lock', () => {
+const isCEPH = process.env.CI_CEPH !== undefined;
+const describeSkipIfCeph = isCEPH ? describe.skip : describe;
+
+describeSkipIfCeph('GET object with object lock', () => {
     withV4(sigCfg => {
         const bucketUtil = new BucketUtility('default', sigCfg);
         const s3 = bucketUtil.s3;

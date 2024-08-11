@@ -1,10 +1,14 @@
 const assert = require('assert');
 const crypto = require('crypto');
-const { errors } = require('arsenal');
+const { errors, storage } = require('arsenal');
 const AWS = require('aws-sdk');
+AWS.config.logger = console;
+const { v4: uuidv4 } = require('uuid');
 
 const async = require('async');
-const azure = require('azure-storage');
+const azure = require('@azure/storage-blob');
+
+const { GCP } = storage.data.external;
 
 const { getRealAwsConfig } = require('../support/awsConfig');
 const { config } = require('../../../../../lib/Config');
@@ -20,20 +24,40 @@ const azureLocation = 'azurebackend';
 const azureLocation2 = 'azurebackend2';
 const azureLocationMismatch = 'azurebackendmismatch';
 const azureLocationNonExistContainer = 'azurenonexistcontainer';
+const gcpLocation = 'gcpbackend';
+const gcpLocation2 = 'gcpbackend2';
+const gcpLocationMismatch = 'gcpbackendmismatch';
 const versioningEnabled = { Status: 'Enabled' };
 const versioningSuspended = { Status: 'Suspended' };
 const awsFirstTimeout = 10000;
 const awsSecondTimeout = 30000;
 let describeSkipIfNotMultiple = describe.skip;
+let describeSkipIfNotMultipleOrCeph = describe.skip;
 let awsS3;
 let awsBucket;
 
+let gcpClient;
+let gcpBucket;
+let gcpBucketMPU;
+
+const isCEPH = process.env.CI_CEPH !== undefined;
+const itSkipCeph = isCEPH ? it.skip : it.skip;
+const describeSkipIfCeph = isCEPH ? describe.skip : describe.skip; // always skip
+
 if (config.backends.data === 'multiple') {
     describeSkipIfNotMultiple = describe;
+    describeSkipIfNotMultipleOrCeph = isCEPH ? describe.skip : describe.skip; // always skip
     const awsConfig = getRealAwsConfig(awsLocation);
     awsS3 = new AWS.S3(awsConfig);
     awsBucket = config.locationConstraints[awsLocation].details.bucketName;
+
+    const gcpConfig = getRealAwsConfig(gcpLocation);
+    gcpClient = new GCP(gcpConfig);
+    gcpBucket = config.locationConstraints[gcpLocation].details.bucketName;
+    gcpBucketMPU =
+        config.locationConstraints[gcpLocation].details.mpuBucketName;
 }
+
 
 function _assertErrorResult(err, expectedError, desc) {
     if (!expectedError) {
@@ -47,8 +71,13 @@ function _assertErrorResult(err, expectedError, desc) {
 
 const utils = {
     describeSkipIfNotMultiple,
+    describeSkipIfNotMultipleOrCeph,
+    describeSkipIfCeph,
     awsS3,
     awsBucket,
+    gcpClient,
+    gcpBucket,
+    gcpBucketMPU,
     fileLocation,
     memLocation,
     awsLocation,
@@ -59,7 +88,14 @@ const utils = {
     azureLocation2,
     azureLocationMismatch,
     azureLocationNonExistContainer,
+    gcpLocation,
+    gcpLocation2,
+    gcpLocationMismatch,
+    isCEPH,
+    itSkipCeph,
 };
+
+utils.genUniqID = () => uuidv4().replace(/-/g, '');
 
 utils.getOwnerInfo = account => {
     let ownerID;
@@ -84,7 +120,7 @@ utils.getOwnerInfo = account => {
     return { ownerID, ownerDisplayName };
 };
 
-utils.uniqName = name => `${name}${new Date().getTime()}`;
+utils.uniqName = name => `${name}-${utils.genUniqID()}`;
 
 utils.getAzureClient = () => {
     const params = {};
@@ -114,8 +150,11 @@ utils.getAzureClient = () => {
         return undefined;
     }
 
-    return azure.createBlobService(params.azureStorageAccountName,
-        params.azureStorageAccessKey, params.azureStorageEndpoint);
+    const cred = new azure.StorageSharedKeyCredential(
+        params.azureStorageAccountName,
+        params.azureStorageAccessKey,
+    );
+    return new azure.BlobServiceClient(params.azureStorageEndpoint, cred);
 };
 
 utils.getAzureContainerName = azureLocation => {
@@ -133,19 +172,19 @@ utils.getAzureKeys = () => {
     const keys = [
         {
             describe: 'empty',
-            name: `somekey-${Date.now()}`,
+            name: `somekey-${utils.genUniqID()}`,
             body: '',
             MD5: 'd41d8cd98f00b204e9800998ecf8427e',
         },
         {
             describe: 'normal',
-            name: `somekey-${Date.now()}`,
+            name: `somekey-${utils.genUniqID()}`,
             body: Buffer.from('I am a body', 'utf8'),
             MD5: 'be747eb4b75517bf6b3cf7c5fbb62f3a',
         },
         {
             describe: 'big',
-            name: `bigkey-${Date.now()}`,
+            name: `bigkey-${utils.genUniqID()}`,
             body: Buffer.alloc(10485760),
             MD5: 'f1c9645dbc14efddc7d8a322685f26eb',
         },
@@ -169,7 +208,10 @@ utils.expectedETag = (body, getStringified = true) => {
 utils.putToAwsBackend = (s3, bucket, key, body, cb) => {
     s3.putObject({ Bucket: bucket, Key: key, Body: body,
     Metadata: { 'scal-location-constraint': awsLocation } },
-        (err, result) => cb(err, result.VersionId));
+        (err, result) => {
+            cb(err, result.VersionId);
+        }
+    );
 };
 
 utils.enableVersioning = (s3, bucket, cb) => {
@@ -241,7 +283,7 @@ utils.getAndAssertResult = (s3, params, cb) => {
             if (expectedTagCount && expectedTagCount === '0') {
                 assert.strictEqual(data.TagCount, undefined);
             } else if (expectedTagCount) {
-                assert.strictEqual(data.TagCount, expectedTagCount);
+                assert.strictEqual(data.TagCount, parseInt(expectedTagCount, 10));
             }
             return cb();
         });
@@ -375,6 +417,5 @@ utils.tagging.awsGetAssertTags = (params, cb) => {
         return cb();
     });
 };
-
 
 module.exports = utils;

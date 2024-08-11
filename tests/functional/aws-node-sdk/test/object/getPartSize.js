@@ -48,8 +48,10 @@ describe('Part size tests with object head', () => {
 
             async.waterfall([
                 next => s3.createBucket({ Bucket: bucket }, err => next(err)),
-                next => s3.createMultipartUpload({ Bucket: bucket,
-                    Key: object }, (err, data) => {
+                next => s3.createMultipartUpload({
+                    Bucket: bucket,
+                    Key: object
+                }, (err, data) => {
                     checkNoError(err);
                     this.currentTest.UploadId = data.UploadId;
                     return next();
@@ -98,26 +100,26 @@ describe('Part size tests with object head', () => {
         afterEach(done => {
             async.waterfall([
                 next => s3.deleteObject({ Bucket: bucket, Key: object },
-                  err => next(err)),
+                    err => next(err)),
                 next => s3.deleteBucket({ Bucket: bucket }, err => next(err)),
             ], done);
         });
 
         it('should return the total size of the object ' +
             'when --part-number is not used', done => {
-            const totalSize = partNumbers.reduce((total, current) =>
-                total + (bodySize + current + 1), 0);
-            headObject({}, (err, data) => {
-                checkNoError(err);
-                assert.equal(totalSize, data.ContentLength);
-                done();
+                const totalSize = partNumbers.reduce((total, current) =>
+                    total + (bodySize + current + 1), 0);
+                headObject({}, (err, data) => {
+                    checkNoError(err);
+                    assert.equal(totalSize, data.ContentLength);
+                    done();
+                });
             });
-        });
 
         partNumbers.forEach(part => {
             it(`should return the size of part ${part + 1} ` +
                 `when --part-number is set to ${part + 1}`, done => {
-                const partNumber = Number.parseInt(part, 0) + 1;
+                const partNumber = Number.parseInt(part, 10) + 1;
                 const partSize = bodySize + partNumber;
                 headObject({ PartNumber: partNumber }, (err, data) => {
                     checkNoError(err);
@@ -142,8 +144,6 @@ describe('Part size tests with object head', () => {
             done => {
                 headObject({ PartNumber: partNumbers.length + 1 },
                 (err, data) => {
-                    // the error response does not contain the actual
-                    // statusCode instead it has '416'
                     checkError(err, 416, 416);
                     assert.strictEqual(data, null);
                     done();

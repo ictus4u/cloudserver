@@ -4,7 +4,6 @@ const BucketUtility = require('../../../lib/utility/bucket-util');
 const withV4 = require('../../support/withV4');
 
 const {
-    describeSkipIfNotMultiple,
     uniqName,
     getAzureClient,
     getAzureContainerName,
@@ -21,7 +20,7 @@ const normalBody = Buffer.from('I am a body', 'utf8');
 
 const azureTimeout = 10000;
 
-describeSkipIfNotMultiple('Multiple backend get object from Azure',
+describe.skip('Multiple backend get object from Azure',
 function testSuite() {
     this.timeout(30000);
     withV4(sigCfg => {
@@ -139,12 +138,12 @@ function testSuite() {
                 }, err => {
                     assert.equal(err, null, 'Expected success but got ' +
                     `error ${err}`);
-                    azureClient.deleteBlob(azureContainerName, azureObject,
-                    err => {
-                        assert.equal(err, null, 'Expected success but got ' +
-                        `error ${err}`);
-                        done(err);
-                    });
+                    azureClient.getContainerClient(azureContainerName)
+                        .deleteBlob(azureObject).then(done, err => {
+                            assert.equal(err, null, 'Expected success but got ' +
+                                `error ${err}`);
+                            done(err);
+                        });
                 });
             });
 
@@ -154,7 +153,7 @@ function testSuite() {
                     Bucket: azureContainerName,
                     Key: azureObject,
                 }, err => {
-                    assert.strictEqual(err.code, 'ServiceUnavailable');
+                    assert.strictEqual(err.code, 'LocationNotFound');
                     done();
                 });
             });

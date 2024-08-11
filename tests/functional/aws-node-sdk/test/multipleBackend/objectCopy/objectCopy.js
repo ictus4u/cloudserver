@@ -8,22 +8,24 @@ const { config } = require('../../../../../../lib/Config');
 const { getRealAwsConfig } = require('../../support/awsConfig');
 const { createEncryptedBucketPromise } =
     require('../../../lib/utility/createEncryptedBucket');
-const { describeSkipIfNotMultiple, awsS3, memLocation, awsLocation,
-    azureLocation, awsLocation2, awsLocationMismatch, awsLocationEncryption } =
-    require('../utils');
-const bucket = 'buckettestmultiplebackendobjectcopy';
-const bucketAws = 'bucketawstestmultiplebackendobjectcopy';
-const awsServerSideEncryptionbucket = 'awsserversideencryptionbucketobjectcopy';
+const { describeSkipIfNotMultiple, itSkipCeph, awsS3, memLocation, awsLocation,
+    azureLocation, awsLocation2, awsLocationMismatch, awsLocationEncryption,
+    genUniqID } = require('../utils');
+
+const bucket = `objectcopybucket${genUniqID()}`;
+const bucketAws = `objectcopyaws${genUniqID()}`;
+const awsServerSideEncryptionbucket = `objectcopyawssse${genUniqID()}`;
 const body = Buffer.from('I am a body', 'utf8');
 const correctMD5 = 'be747eb4b75517bf6b3cf7c5fbb62f3a';
 const emptyMD5 = 'd41d8cd98f00b204e9800998ecf8427e';
 const locMetaHeader = constants.objectLocationConstraintHeader.substring(11);
+const Promise = require('bluebird');
 
 let bucketUtil;
 let s3;
 
 function putSourceObj(location, isEmptyObj, bucket, cb) {
-    const key = `somekey-${Date.now()}`;
+    const key = `somekey-${genUniqID()}`;
     const sourceParams = { Bucket: bucket, Key: key,
         Metadata: {
             'test-header': 'copyme',
@@ -167,7 +169,7 @@ function testSuite() {
         'destination bucket location',
         done => {
             putSourceObj(memLocation, false, bucket, key => {
-                const copyKey = `copyKey-${Date.now()}`;
+                const copyKey = `copyKey-${genUniqID()}`;
                 const copyParams = {
                     Bucket: bucketAws,
                     Key: copyKey,
@@ -191,7 +193,7 @@ function testSuite() {
         'destination bucket location',
         done => {
             putSourceObj(azureLocation, false, bucket, key => {
-                const copyKey = `copyKey-${Date.now()}`;
+                const copyKey = `copyKey-${genUniqID()}`;
                 const copyParams = {
                     Bucket: bucketAws,
                     Key: copyKey,
@@ -215,7 +217,7 @@ function testSuite() {
         'to AWS relying on destination bucket location',
         done => {
             putSourceObj(null, false, bucket, key => {
-                const copyKey = `copyKey-${Date.now()}`;
+                const copyKey = `copyKey-${genUniqID()}`;
                 const copyParams = {
                     Bucket: bucketAws,
                     Key: copyKey,
@@ -239,7 +241,7 @@ function testSuite() {
         'bucket location',
         done => {
             putSourceObj(awsLocation, false, bucketAws, key => {
-                const copyKey = `copyKey-${Date.now()}`;
+                const copyKey = `copyKey-${genUniqID()}`;
                 const copyParams = {
                     Bucket: bucket,
                     Key: copyKey,
@@ -261,7 +263,7 @@ function testSuite() {
 
         it('should copy an object from mem to AWS', done => {
             putSourceObj(memLocation, false, bucket, key => {
-                const copyKey = `copyKey-${Date.now()}`;
+                const copyKey = `copyKey-${genUniqID()}`;
                 const copyParams = {
                     Bucket: bucket,
                     Key: copyKey,
@@ -283,10 +285,10 @@ function testSuite() {
             });
         });
 
-        it('should copy an object from mem to AWS with aws server side ' +
-        'encryption', done => {
+        itSkipCeph('should copy an object from mem to AWS with aws server ' +
+        'side encryption', done => {
             putSourceObj(memLocation, false, bucket, key => {
-                const copyKey = `copyKey-${Date.now()}`;
+                const copyKey = `copyKey-${genUniqID()}`;
                 const copyParams = {
                     Bucket: bucket,
                     Key: copyKey,
@@ -311,7 +313,7 @@ function testSuite() {
         it('should copy an object from AWS to mem with encryption with ' +
         'REPLACE directive but no location constraint', done => {
             putSourceObj(awsLocation, false, bucket, key => {
-                const copyKey = `copyKey-${Date.now()}`;
+                const copyKey = `copyKey-${genUniqID()}`;
                 const copyParams = {
                     Bucket: bucket,
                     Key: copyKey,
@@ -331,10 +333,11 @@ function testSuite() {
             });
         });
 
-        it('should copy an object on AWS with aws server side encryption',
+        itSkipCeph('should copy an object on AWS with aws server side ' +
+        'encryption',
         done => {
             putSourceObj(awsLocation, false, bucket, key => {
-                const copyKey = `copyKey-${Date.now()}`;
+                const copyKey = `copyKey-${genUniqID()}`;
                 const copyParams = {
                     Bucket: bucket,
                     Key: copyKey,
@@ -356,11 +359,11 @@ function testSuite() {
             });
         });
 
-        it('should copy an object on AWS with aws server side ' +
+        itSkipCeph('should copy an object on AWS with aws server side ' +
         'encrypted bucket', done => {
             putSourceObj(awsLocation, false, awsServerSideEncryptionbucket,
             key => {
-                const copyKey = `copyKey-${Date.now()}`;
+                const copyKey = `copyKey-${genUniqID()}`;
                 const copyParams = {
                     Bucket: awsServerSideEncryptionbucket,
                     Key: copyKey,
@@ -384,7 +387,7 @@ function testSuite() {
         it('should copy an object from mem to AWS with encryption with ' +
         'REPLACE directive but no location constraint', done => {
             putSourceObj(null, false, bucket, key => {
-                const copyKey = `copyKey-${Date.now()}`;
+                const copyKey = `copyKey-${genUniqID()}`;
                 const copyParams = {
                     Bucket: bucketAws,
                     Key: copyKey,
@@ -408,7 +411,7 @@ function testSuite() {
         'directive and aws location metadata',
         done => {
             putSourceObj(awsLocation, false, bucket, key => {
-                const copyKey = `copyKey-${Date.now()}`;
+                const copyKey = `copyKey-${genUniqID()}`;
                 const copyParams = {
                     Bucket: bucket,
                     Key: copyKey,
@@ -432,7 +435,7 @@ function testSuite() {
 
         it('should copy an object on AWS', done => {
             putSourceObj(awsLocation, false, bucket, key => {
-                const copyKey = `copyKey-${Date.now()}`;
+                const copyKey = `copyKey-${genUniqID()}`;
                 const copyParams = {
                     Bucket: bucket,
                     Key: copyKey,
@@ -457,7 +460,7 @@ function testSuite() {
         'false to a different AWS location with bucketMatch equals true',
         done => {
             putSourceObj(awsLocationMismatch, false, bucket, key => {
-                const copyKey = `copyKey-${Date.now()}`;
+                const copyKey = `copyKey-${genUniqID()}`;
                 const copyParams = {
                     Bucket: bucket,
                     Key: copyKey,
@@ -484,7 +487,7 @@ function testSuite() {
         done => {
             const awsConfig2 = getRealAwsConfig(awsLocation2);
             const awsS3Two = new AWS.S3(awsConfig2);
-            const copyKey = `copyKey-${Date.now()}`;
+            const copyKey = `copyKey-${genUniqID()}`;
             const awsBucket =
                 config.locationConstraints[awsLocation].details.bucketName;
             async.waterfall([
@@ -519,11 +522,11 @@ function testSuite() {
             ], done);
         });
 
-        it('should return error AccessDenied copying an object on AWS to a ' +
-        'different AWS account without source object READ access',
+        itSkipCeph('should return error AccessDenied copying an object on ' +
+        'AWS to a different AWS account without source object READ access',
         done => {
             putSourceObj(awsLocation, false, bucket, key => {
-                const copyKey = `copyKey-${Date.now()}`;
+                const copyKey = `copyKey-${genUniqID()}`;
                 const copyParams = {
                     Bucket: bucket,
                     Key: copyKey,
@@ -542,7 +545,7 @@ function testSuite() {
 
         it('should copy an object on AWS with REPLACE', done => {
             putSourceObj(awsLocation, false, bucket, key => {
-                const copyKey = `copyKey-${Date.now()}`;
+                const copyKey = `copyKey-${genUniqID()}`;
                 const copyParams = {
                     Bucket: bucket,
                     Key: copyKey,
@@ -566,7 +569,7 @@ function testSuite() {
 
         it('should copy a 0-byte object from mem to AWS', done => {
             putSourceObj(memLocation, true, bucket, key => {
-                const copyKey = `copyKey-${Date.now()}`;
+                const copyKey = `copyKey-${genUniqID()}`;
                 const copyParams = {
                     Bucket: bucket,
                     Key: copyKey,
@@ -590,7 +593,7 @@ function testSuite() {
 
         it('should copy a 0-byte object on AWS', done => {
             putSourceObj(awsLocation, true, bucket, key => {
-                const copyKey = `copyKey-${Date.now()}`;
+                const copyKey = `copyKey-${genUniqID()}`;
                 const copyParams = {
                     Bucket: bucket,
                     Key: copyKey,
@@ -619,7 +622,7 @@ function testSuite() {
                 awsS3.deleteObject({ Bucket: awsBucket, Key: key }, err => {
                     assert.equal(err, null, 'Error deleting object from AWS: ' +
                         `${err}`);
-                    const copyKey = `copyKey-${Date.now()}`;
+                    const copyKey = `copyKey-${genUniqID()}`;
                     const copyParams = { Bucket: bucket, Key: copyKey,
                         CopySource: `/${bucket}/${key}`,
                         MetadataDirective: 'REPLACE',

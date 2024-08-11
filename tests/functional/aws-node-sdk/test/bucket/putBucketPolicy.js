@@ -30,6 +30,33 @@ function getPolicyParams(paramToChange) {
     };
 }
 
+function getPolicyParamsWithId(paramToChange, policyId) {
+    const newParam = {};
+    const bucketPolicy = {
+        Version: '2012-10-17',
+        Id: policyId,
+        Statement: [basicStatement],
+    };
+    if (paramToChange) {
+        newParam[paramToChange.key] = paramToChange.value;
+        bucketPolicy.Statement[0] = Object.assign({}, basicStatement, newParam);
+    }
+    return {
+        Bucket: bucket,
+        Policy: JSON.stringify(bucketPolicy),
+    };
+}
+
+function generateRandomString(length) {
+    // All allowed characters matching the regex in arsenal
+    const allowedCharacters = 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789+=,.@ -/';
+    const allowedCharactersLength = allowedCharacters.length;
+
+    return [...Array(length)]
+      .map(() => allowedCharacters[~~(Math.random() * allowedCharactersLength)])
+      .join('');
+}
+
 // Check for the expected error response code and status code.
 function assertError(err, expectedErr, cb) {
     if (expectedErr === null) {
@@ -43,6 +70,7 @@ function assertError(err, expectedErr, cb) {
     }
     cb();
 }
+
 
 describe('aws-sdk test put bucket policy', () => {
     let s3;
@@ -101,6 +129,128 @@ describe('aws-sdk test put bucket policy', () => {
             const params = getPolicyParams({ key: 'Principal', value: '' });
             s3.putBucketPolicy(params, err =>
                 assertError(err, 'MalformedPolicy', done));
+        });
+
+        it('should return MalformedPolicy because Id is not a string',
+        done => {
+            const params = getPolicyParamsWithId(null, 59);
+            s3.putBucketPolicy(params, err =>
+                assertError(err, 'MalformedPolicy', done));
+        });
+
+        it('should put a bucket policy on bucket since Id is a string',
+        done => {
+            const params = getPolicyParamsWithId(null, 'cd3ad3d9-2776-4ef1-a904-4c229d1642e');
+            s3.putBucketPolicy(params, err =>
+                assertError(err, null, done));
+        });
+
+        it('should allow bucket policy with pincipal arn less than 2048 characters', done => {
+            const params = getPolicyParams({ key: 'Principal', value: { AWS: `arn:aws:iam::767707094035:user/${generateRandomString(150)}` } }); // eslint-disable-line max-len
+            s3.putBucketPolicy(params, err =>
+                assertError(err, null, done));
+        });
+
+        it('should not allow bucket policy with pincipal arn more than 2048 characters', done => {
+            const params = getPolicyParams({ key: 'Principal', value: { AWS: `arn:aws:iam::767707094035:user/${generateRandomString(2020)}` } }); // eslint-disable-line max-len
+            s3.putBucketPolicy(params, err =>
+                assertError(err, 'MalformedPolicy', done));
+        });
+
+        it('should allow bucket policy with valid SourceIp condition', done => {
+            const params = getPolicyParams({
+                key: 'Condition', value: {
+                    IpAddress: {
+                        'aws:SourceIp': '192.168.100.0/24',
+                    },
+                },
+            });
+            s3.putBucketPolicy(params, err => assertError(err, null, done));
+        });
+
+        it('should not allow bucket policy with invalid SourceIp format', done => {
+            const params = getPolicyParams({
+                key: 'Condition', value: {
+                    IpAddress: {
+                        'aws:SourceIp': '192.168.100', // Invalid IP format
+                    },
+                },
+            });
+            s3.putBucketPolicy(params, err => assertError(err, 'MalformedPolicy', done));
+        });
+
+        it('should allow bucket policy with valid s3:object-lock-remaining-retention-days condition', done => {
+            const params = getPolicyParams({
+                key: 'Condition', value: {
+                    NumericGreaterThanEquals: {
+                        's3:object-lock-remaining-retention-days': '30',
+                    },
+                },
+            });
+            s3.putBucketPolicy(params, err => assertError(err, null, done));
+        });
+
+        // yep, this is the expected behaviour
+        it('should not reject policy with invalid s3:object-lock-remaining-retention-days value', done => {
+            const params = getPolicyParams({
+                key: 'Condition', value: {
+                    NumericGreaterThanEquals: {
+                        's3:object-lock-remaining-retention-days': '-1', // Invalid value
+                    },
+                },
+            });
+            s3.putBucketPolicy(params, err => assertError(err, null, done));
+        });
+
+        // this too ¯\_(ツ)_/¯
+        it('should not reject policy with a key starting with aws:', done => {
+            const params = getPolicyParams({
+                key: 'Condition', value: {
+                    NumericGreaterThanEquals: {
+                        'aws:have-a-nice-day': 'blabla', // Invalid value
+                    },
+                },
+            });
+            s3.putBucketPolicy(params, err => assertError(err, null, done));
+        });
+
+        it('should reject policy with a key that does not exist that does not start with aws:', done => {
+            const params = getPolicyParams({
+                key: 'Condition', value: {
+                    NumericGreaterThanEquals: {
+                        'have-a-nice-day': 'blabla', // Invalid value
+                    },
+                },
+            });
+            s3.putBucketPolicy(params, err => assertError(err, 'MalformedPolicy', done));
+        });
+
+        it('should enforce policies with both SourceIp and s3:object-lock conditions together', done => {
+            const params = getPolicyParams({
+                key: 'Condition', value: {
+                    IpAddress: {
+                        'aws:SourceIp': '192.168.100.0/24',
+                    },
+                    NumericGreaterThanEquals: {
+                        's3:object-lock-remaining-retention-days': '30',
+                    },
+                },
+            });
+            s3.putBucketPolicy(params, err => assertError(err, null, done));
+        });
+
+        it('should return error if a condition one of the condition values is invalid', done => {
+            const params = getPolicyParams({
+                key: 'Condition', value: {
+                    IpAddress: {
+                        'aws:SourceIp': '192.168.100',
+                    },
+                    NumericGreaterThanEquals: {
+                        's3:object-lock-remaining-retention-days': '30',
+                    },
+                },
+            });
+            s3.putBucketPolicy(params, err => assertError(err, 'MalformedPolicy', done));
         });
     });
 });

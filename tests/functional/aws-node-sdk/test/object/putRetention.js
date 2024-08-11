@@ -15,7 +15,10 @@ const retentionConfig = {
     RetainUntilDate: moment().add(1, 'd').add(123, 'ms').toISOString(),
 };
 
-describe('PUT object retention', () => {
+const isCEPH = process.env.CI_CEPH !== undefined;
+const describeSkipIfCeph = isCEPH ? describe.skip : describe;
+
+describeSkipIfCeph('PUT object retention', () => {
     withV4(sigCfg => {
         const bucketUtil = new BucketUtility('default', sigCfg);
         const s3 = bucketUtil.s3;

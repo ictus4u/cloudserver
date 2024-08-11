@@ -1,7 +1,6 @@
 const assert = require('assert');
 const async = require('async');
 const { parseString } = require('xml2js');
-const { errors } = require('arsenal');
 
 const { bucketPut } = require('../../../lib/api/bucketPut');
 const constants = require('../../../constants');
@@ -36,6 +35,7 @@ describe('objectGetACL API', () => {
             'x-amz-acl': 'public-read-write',
         },
         url: '/',
+        actionImplicitDenies: false,
     };
     const testGetACLRequest = {
         bucketName,
@@ -44,6 +44,7 @@ describe('objectGetACL API', () => {
         objectKey: objectName,
         url: `/${bucketName}/${objectName}?acl`,
         query: { acl: '' },
+        actionImplicitDenies: false,
     };
 
     it('should get a canned private ACL', done => {
@@ -79,7 +80,7 @@ describe('objectGetACL API', () => {
     'for a nonexistent object', done => {
         bucketPut(authInfo, testBucketPutRequest, log, () => {
             objectGetACL(authInfo, testGetACLRequest, log, err => {
-                assert.deepStrictEqual(err, errors.NoSuchKey);
+                assert.strictEqual(err.is.NoSuchKey, true);
                 done();
             });
         });
