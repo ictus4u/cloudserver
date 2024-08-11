@@ -23,15 +23,13 @@ runs:
     - name: install dependencies
       shell: bash
       run: yarn install --ignore-engines --frozen-lockfile --network-concurrency 1
-    - uses: actions/cache@v2
+    - uses: actions/cache@v3
       with:
         path: ~/.cache/pip
         key: ${{ runner.os }}-pip
     - uses: actions/setup-python@v4
       with:
-        python-version: |
-          2.7
-          3.9
+        python-version: 3.9
     - name: Install python deps
       shell: bash
       run: pip install docker-compose
@@ -39,7 +37,4 @@ runs:
       shell: bash
       run: |
         sudo apt-get install -y libdigest-hmac-perl
-        pip install virtualenv
-        virtualenv -p $(which python2) ~/.virtualenv/py2
-        source ~/.virtualenv/py2/bin/activate
-        pip install 's3cmd==1.6.1'
+        pip install 's3cmd==2.3.0'

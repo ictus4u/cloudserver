@@ -144,6 +144,7 @@ describe('Object Copy', () => {
             s3.getObject({ Bucket: destBucketName,
                 Key: destObjName }, (err, res) => {
                 checkNoError(err);
+                assert.strictEqual(res.StorageClass, undefined);
                 assert.strictEqual(res.Body.toString(),
                     content);
                 assert.deepStrictEqual(res.Metadata,
@@ -1257,22 +1258,21 @@ describe('Object Copy', () => {
             });
         });
 
-        it('should not copy an object when it\'s transitioning to cold', done => {
+        it('should copy an object when it\'s transitioning to cold', done => {
             fakeMetadataTransition(sourceBucketName, sourceObjName, undefined, err => {
                 assert.ifError(err);
                 s3.copyObject({
                     Bucket: destBucketName,
                     Key: destObjName,
                     CopySource: `${sourceBucketName}/${sourceObjName}`,
-                }, err => {
-                        assert.strictEqual(err.code, 'InvalidObjectState');
-                        assert.strictEqual(err.statusCode, 403);
-                        done();
-                    });
+                }, (err, res) => {
+                    successCopyCheck(err, res, originalMetadata,
+                        destBucketName, destObjName, done);
+                });
             });
         });
 
-        it('should copy restored object', done => {
+        it('should copy restored object and reset storage class', done => {
             const archiveCompleted = {
                 archiveInfo: {},
                 restoreRequestedAt: new Date(0),
@@ -1289,7 +1289,7 @@ describe('Object Copy', () => {
                 }, (err, res) => {
                     successCopyCheck(err, res, originalMetadata,
                         destBucketName, destObjName, done);
-                    });
+                });
             });
         });
     });

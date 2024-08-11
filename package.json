@@ -1,6 +1,6 @@
 {
   "name": "@zenko/cloudserver",
-  "version": "8.7.11",
+  "version": "8.7.25",
   "description": "Zenko CloudServer, an open-source Node.js implementation of a server handling the Amazon S3 protocol",
   "main": "index.js",
   "engines": {
@@ -21,7 +21,7 @@
   "dependencies": {
     "@azure/storage-blob": "^12.12.0",
     "@hapi/joi": "^17.1.0",
-    "arsenal": "git+https://github.com/scality/arsenal#8.1.89",
+    "arsenal": "git+https://github.com/scality/arsenal#8.1.105",
     "async": "~2.5.0",
     "aws-sdk": "2.905.0",
     "bucketclient": "scality/bucketclient#8.1.9",
@@ -35,7 +35,7 @@
     "https-proxy-agent": "^2.2.0",
     "level-mem": "^5.0.1",
     "moment": "^2.26.0",
-    "mongodb": "^2.2.31",
+    "mongodb": "^5.2.0",
     "node-fetch": "^2.6.0",
     "node-forge": "^0.7.1",
     "npm-run-all": "~4.1.5",
@@ -57,6 +57,7 @@
     "eslint-config-airbnb-base": "^13.1.0",
     "eslint-config-scality": "scality/Guidelines#8.2.0",
     "eslint-plugin-import": "^2.14.0",
+    "eslint-plugin-mocha": "^10.1.0",
     "express": "^4.17.1",
     "ioredis": "4.9.5",
     "istanbul": "1.0.0-alpha.2",
